@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Privacy Policy - SpikeCoach</title>
+  <meta name="description" content="Privacy Policy for SpikeCoach, an independent VALORANT companion application built as an Overwolf Native app.">
+  <meta name="robots" content="noindex">
+  <link rel="icon" href="assets/spikecoach_icon.png" type="image/png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to main content</a>
+
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="logo" href="index.html" aria-label="SpikeCoach home">
+        <img src="assets/spikecoach_icon.png" alt="" width="40" height="40" class="logo-mark">
+        <span class="logo-text">SpikeCoach</span>
+      </a>
+      <nav class="site-nav site-nav--legal" aria-label="Primary">
+        <ul>
+          <li><a href="index.html">Home</a></li>
+          <li><a href="download.html">Download</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main" class="legal-page">
+    <div class="container">
+      <a class="legal-back" href="index.html">&larr; Back to home</a>
+
+      <h1>Privacy Policy</h1>
+      <p class="legal-meta">Last updated: October 21, 2026</p>
+
+      <p>
+        SpikeCoach (&quot;we,&quot; &quot;us,&quot; or &quot;our&quot;) operates the SpikeCoach VALORANT companion
+        application and this website at <a href="https://spikecoach.online">https://spikecoach.online</a>.
+        SpikeCoach is an independent third-party companion and is not affiliated with or endorsed by Riot Games.
+        This Privacy Policy describes how we handle information when you use SpikeCoach.
+      </p>
+
+      <h2>1. Information You Provide</h2>
+      <p>When you use SpikeCoach, you may provide:</p>
+      <ul>
+        <li>Email address, password, and display name when you create a SpikeCoach account</li>
+        <li>Messages you send to us for support or feedback</li>
+        <li>Text you submit to the AI Coach feature (questions and prompts)</li>
+      </ul>
+      <p>
+        SpikeCoach does not currently offer Riot account linking (Riot Sign On). You cannot connect a Riot account
+        through SpikeCoach at this time.
+      </p>
+
+      <h2>2. Authentication (Firebase)</h2>
+      <p>
+        SpikeCoach uses <strong>Firebase Authentication</strong> (Google) for email and password sign-in, email
+        verification, and account management. Firebase processes information such as your email address, display name,
+        and authentication credentials and tokens needed to sign you in. Google&apos;s privacy policies apply to
+        Firebase&apos;s processing.
+      </p>
+      <p>SpikeCoach does not use Firebase for Riot account authentication.</p>
+
+      <h2>3. Game-Related Information (Overwolf)</h2>
+      <p>
+        SpikeCoach is built as an Overwolf Native companion application. During VALORANT gameplay, SpikeCoach processes
+        game-related data made available to the application through Overwolf, including:
+      </p>
+      <ul>
+        <li>Live match statistics, Personal Stats, and scoreboard-related information exposed through allowed Overwolf functionality</li>
+        <li>Derived SpikeCoach statistics, including SpikeCoach Impact Rating (a custom SpikeCoach match-impact metric, not an official Riot Games or VALORANT rating)</li>
+        <li>Information used for post-match analysis and personalized recommendations after a match ends</li>
+      </ul>
+      <p>
+        Live overlays are intended to present statistical and informational views. SpikeCoach is not designed to send
+        real-time tactical commands during an active round (for example, immediate rotate, buy, or ability-use instructions).
+      </p>
+      <p>
+        SpikeCoach does not currently connect Riot accounts and does not currently access personal VALORANT account data
+        through the Riot Games API. Riot account connection is planned for a future version and is not currently available.
+        If that feature is added, it would require your authorization and this policy will be updated.
+      </p>
+
+      <h2>4. AI Coach</h2>
+      <p>
+        When you use the AI Coach, the SpikeCoach application sends your AI Coach message to a SpikeCoach backend hosted
+        on <strong>Render</strong>. The app uses your Firebase ID token to authenticate that request to our backend.
+        Our backend forwards the relevant message content to <strong>OpenAI</strong> for processing so OpenAI can generate
+        a response. We do not send your Firebase authentication token to OpenAI.
+      </p>
+      <p>
+        Do not submit passwords, payment details, or other sensitive personal information in AI Coach messages.
+        Retention and processing by OpenAI and Render may be subject to those providers&apos; policies and our
+        configuration; we do not publish fixed retention periods for AI requests on this page.
+      </p>
+
+      <h2>5. Supabase</h2>
+      <p>
+        SpikeCoach uses <strong>Supabase</strong> primarily for application content such as the Guess the Rank clip catalog
+        (for example, clip metadata used to present challenges in the app). Supabase is not used as the primary store for
+        SpikeCoach user account credentials (Firebase handles authentication).
+      </p>
+
+      <h2>6. YouTube (Guess the Rank)</h2>
+      <p>
+        The Guess the Rank feature may embed or play video content from <strong>YouTube</strong> (Google). When you interact
+        with embedded YouTube content, Google may collect information according to YouTube&apos;s terms and privacy policies.
+      </p>
+
+      <h2>7. Third-Party Service Providers</h2>
+      <p>Material third parties that may process information in connection with SpikeCoach include:</p>
+      <ul>
+        <li><strong>Overwolf</strong>: application and overlay platform; game-event and match information</li>
+        <li><strong>Firebase / Google</strong>: authentication and email verification</li>
+        <li><strong>Supabase</strong>: application content database (such as Guess the Rank catalog data)</li>
+        <li><strong>Render</strong>: hosting for the SpikeCoach backend used by features such as the AI Coach</li>
+        <li><strong>OpenAI</strong>: processing AI Coach messages to generate responses</li>
+        <li><strong>YouTube / Google</strong>: video playback for Guess the Rank, where embeds are used</li>
+      </ul>
+      <p>
+        Each provider has its own privacy practices. SpikeCoach version 1 does not use advertising networks and does not
+        display ads.
+      </p>
+
+      <h2>8. How We Use Information</h2>
+      <p>We use information to:</p>
+      <ul>
+        <li>Provide and operate SpikeCoach features (statistics, post-match analysis, tools, and AI Coach)</li>
+        <li>Authenticate accounts and maintain security</li>
+        <li>Respond to support requests and enforce our Terms of Service</li>
+        <li>Comply with applicable law</li>
+      </ul>
+
+      <h2>9. Sharing of Information</h2>
+      <p>
+        We share information with service providers that process data on our behalf to operate SpikeCoach (listed above),
+        when required by law, or to protect rights, safety, and security. We may also share information in connection with
+        a merger, acquisition, or sale of assets, with notice where appropriate.
+      </p>
+      <p>
+        SpikeCoach does not sell your personal information. Sharing with service providers is not a sale of personal
+        information; it is necessary to run the service.
+      </p>
+
+      <h2>10. Data Retention</h2>
+      <p>
+        We retain information for as long as reasonably needed to provide SpikeCoach, maintain accounts, resolve disputes,
+        and meet legal obligations. Specific retention may depend on the type of data and on third-party providers&apos;
+        policies and settings.
+      </p>
+
+      <h2>11. Data Security</h2>
+      <p>
+        We use reasonable measures designed to protect information. No method of transmission or storage is completely secure,
+        and we cannot guarantee absolute security.
+      </p>
+
+      <h2>12. Your Privacy Rights</h2>
+      <p>
+        Depending on where you live, you may have certain privacy rights under applicable law (such as rights to access,
+        correct, or delete personal information). To make a privacy-related request, contact
+        <a href="mailto:spikecoachco@gmail.com">spikecoachco@gmail.com</a>.
+      </p>
+
+      <h2>13. International Processing</h2>
+      <p>
+        Information may be processed in countries other than your own, including where our service providers operate.
+      </p>
+
+      <h2>14. Age and Children&apos;s Privacy</h2>
+      <p>
+        You must meet the minimum age requirements applicable to VALORANT, Overwolf, and the laws of your jurisdiction to
+        use SpikeCoach. SpikeCoach is not directed at children below those applicable minimums. If you believe we have
+        collected personal information from someone who does not meet applicable age requirements, contact us at
+        <a href="mailto:spikecoachco@gmail.com">spikecoachco@gmail.com</a> and we will take appropriate steps.
+      </p>
+
+      <h2>15. Changes to This Policy</h2>
+      <p>
+        We may update this Privacy Policy from time to time. We will post the updated policy on this page and change the
+        &quot;Last updated&quot; date. Material changes may also be communicated through the app or by email where appropriate.
+      </p>
+
+      <h2>16. Contact Us</h2>
+      <p>
+        Privacy questions or requests:<br>
+        Email: <a href="mailto:spikecoachco@gmail.com">spikecoachco@gmail.com</a><br>
+        Website: <a href="https://spikecoach.online">https://spikecoach.online</a>
+      </p>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <nav class="footer-nav" aria-label="Legal">
+        <ul>
+          <li><a href="index.html">Home</a></li>
+          <li><a href="terms.html">Terms of Service</a></li>
+        </ul>
+      </nav>
+      <p class="riot-disclaimer">
+        SpikeCoach isn't endorsed by Riot Games and doesn't reflect the views or opinions of Riot Games or anyone officially involved in producing or managing Riot Games properties. Riot Games, and all associated properties are trademarks or registered trademarks of Riot Games, Inc.
+      </p>
+      <p class="footer-copy">&copy; <span id="year"></span> SpikeCoach. All rights reserved.</p>
+    </div>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>
