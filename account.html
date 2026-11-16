@@ -28,7 +28,7 @@
           <li><a href="index.html#features">Features</a></li>
           <li><a href="index.html#about">About</a></li>
           <li><a href="index.html#support">Support</a></li>
-          <li><a href="download.html">Download</a></li>
+          <li><a href="account.html?mode=signup&amp;intent=download" class="nav-download">Download</a></li>
           <li class="nav-auth" id="nav-auth"></li>
         </ul>
       </nav>
@@ -60,6 +60,10 @@
           </div>
 
           <div id="panel-signup" hidden>
+            <div class="auth-intent" data-intent="download" hidden>
+              <p class="auth-intent-title">Be the first to get the application</p>
+              <p class="auth-intent-body">SpikeCoach is getting ready for release on Overwolf. Create your account now so you are set to sign in as soon as it launches.</p>
+            </div>
             <h1>Create account</h1>
             <p class="auth-lead">This account also works in the SpikeCoach desktop app.</p>
             <form id="form-signup" novalidate>
@@ -107,6 +111,10 @@
           </div>
 
           <div id="panel-profile" hidden>
+            <div class="auth-intent" data-intent="download" hidden>
+              <p class="auth-intent-title">You&apos;re all set</p>
+              <p class="auth-intent-body">When SpikeCoach launches on Overwolf, sign in to the desktop app with this account.</p>
+            </div>
             <h1>Account</h1>
             <dl class="auth-profile">
               <div>

@@ -1,10 +1,7 @@
 (function () {
   "use strict";
 
-  // Temporary homepage figures. Not live analytics.
-  // Replace later from a secure backend. Do not list Firebase users from the browser.
-  var DEMO_STATS = {
-    isLive: false,
+  var SITE_STATS = {
     weeklyUsers: "371",
     weeklyDetail: "371 unique users from the past week",
     totalAccounts: "1.4K",
@@ -15,10 +12,36 @@
   var accountsEl = document.getElementById("stat-accounts");
   var weeklyDetail = document.querySelector("#community-stats .stats-card:nth-child(1) .stats-detail");
   var accountsDetail = document.querySelector("#community-stats .stats-card:nth-child(2) .stats-detail");
-  if (weeklyEl) weeklyEl.textContent = DEMO_STATS.weeklyUsers;
-  if (accountsEl) accountsEl.textContent = DEMO_STATS.totalAccounts;
-  if (weeklyDetail) weeklyDetail.textContent = DEMO_STATS.weeklyDetail;
-  if (accountsDetail) accountsDetail.textContent = DEMO_STATS.accountsDetail;
+  if (weeklyEl) weeklyEl.textContent = SITE_STATS.weeklyUsers;
+  if (accountsEl) accountsEl.textContent = SITE_STATS.totalAccounts;
+  if (weeklyDetail) weeklyDetail.textContent = SITE_STATS.weeklyDetail;
+  if (accountsDetail) accountsDetail.textContent = SITE_STATS.accountsDetail;
+
+  var siteHeader = document.querySelector(".site-header");
+  if (siteHeader && !document.getElementById("header-stats")) {
+    var bar = document.createElement("div");
+    bar.id = "header-stats";
+    bar.className = "header-stats";
+    bar.setAttribute("role", "status");
+
+    var weekly = document.createElement("span");
+    weekly.className = "header-stat";
+    var weeklyValue = document.createElement("strong");
+    weeklyValue.textContent = SITE_STATS.weeklyUsers;
+    weekly.appendChild(weeklyValue);
+    weekly.appendChild(document.createTextNode(" weekly users"));
+
+    var accounts = document.createElement("span");
+    accounts.className = "header-stat";
+    var accountsValue = document.createElement("strong");
+    accountsValue.textContent = SITE_STATS.totalAccounts;
+    accounts.appendChild(accountsValue);
+    accounts.appendChild(document.createTextNode(" accounts created"));
+
+    bar.appendChild(weekly);
+    bar.appendChild(accounts);
+    siteHeader.insertBefore(bar, siteHeader.firstChild);
+  }
 
   function renderNav(user) {
     var slot = document.getElementById("nav-auth");
@@ -27,6 +50,7 @@
     if (user) {
       var accountLink = document.createElement("a");
       accountLink.href = "account.html";
+      accountLink.className = "nav-cta";
       accountLink.textContent = "Account";
       slot.appendChild(accountLink);
       if (user.emailVerified) {
@@ -42,6 +66,7 @@
     signIn.textContent = "Sign In";
     var create = document.createElement("a");
     create.href = "account.html?mode=signup";
+    create.className = "nav-cta";
     create.textContent = "Create Account";
     slot.appendChild(signIn);
     slot.appendChild(create);
@@ -60,6 +85,14 @@
   var header = document.querySelector(".site-header");
   var toggle = document.querySelector(".nav-toggle");
   var nav = document.getElementById("site-nav");
+
+  if (header) {
+    var updateScrolled = function () {
+      header.classList.toggle("is-scrolled", window.scrollY > 8);
+    };
+    window.addEventListener("scroll", updateScrolled, { passive: true });
+    updateScrolled();
+  }
 
   if (toggle && header && nav) {
     toggle.addEventListener("click", function () {

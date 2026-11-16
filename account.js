@@ -14,6 +14,11 @@ var profileEmailEl = document.getElementById("profile-email");
 var profileVerifiedEl = document.getElementById("profile-verified");
 var busy = false;
 
+var fromDownload = new URLSearchParams(window.location.search).get("intent") === "download";
+document.querySelectorAll('[data-intent="download"]').forEach(function (el) {
+  el.hidden = !fromDownload;
+});
+
 function friendlyError(error) {
   var code = error && error.code ? error.code : "";
   var messages = {
