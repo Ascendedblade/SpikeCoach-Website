@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Account - SpikeCoach</title>
+  <meta name="description" content="Sign in or create a SpikeCoach account. The same account works in the SpikeCoach desktop app.">
+  <meta name="theme-color" content="#0d0d12">
+  <link rel="icon" href="assets/spikecoach_icon.png" type="image/png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to main content</a>
+
+  <header class="site-header" id="top">
+    <div class="container header-inner">
+      <a class="logo" href="index.html" aria-label="SpikeCoach home">
+        <img src="assets/spikecoach_icon.png" alt="" width="40" height="40" class="logo-mark">
+        <span class="logo-text">SpikeCoach</span>
+      </a>
+      <button type="button" class="nav-toggle" aria-expanded="false" aria-controls="site-nav" aria-label="Open menu">
+        <span class="nav-toggle-bar"></span>
+        <span class="nav-toggle-bar"></span>
+        <span class="nav-toggle-bar"></span>
+      </button>
+      <nav class="site-nav" id="site-nav" aria-label="Primary">
+        <ul>
+          <li><a href="index.html#features">Features</a></li>
+          <li><a href="index.html#about">About</a></li>
+          <li><a href="index.html#support">Support</a></li>
+          <li><a href="download.html">Download</a></li>
+          <li class="nav-auth" id="nav-auth"></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main" class="auth-page">
+    <section class="auth-hero" aria-labelledby="auth-heading">
+      <div class="download-hero-bg" aria-hidden="true"></div>
+      <div class="container">
+        <div class="auth-panel">
+          <img src="assets/spikecoach_icon.png" width="56" height="56" alt="" class="auth-mark">
+
+          <div id="panel-signin">
+            <h1 id="auth-heading">Sign in</h1>
+            <p class="auth-lead">Use the same SpikeCoach account as the desktop app.</p>
+            <form id="form-signin" novalidate>
+              <label class="auth-label" for="signin-email">Email</label>
+              <input class="auth-input" id="signin-email" name="email" type="email" autocomplete="email" required>
+              <label class="auth-label" for="signin-password">Password</label>
+              <input class="auth-input" id="signin-password" name="password" type="password" autocomplete="current-password" required>
+              <p id="signin-message" class="auth-message" role="status" hidden></p>
+              <button class="btn btn-primary auth-submit" type="submit">Sign In</button>
+            </form>
+            <p class="auth-links">
+              <a href="account.html?mode=reset" id="show-reset">Forgot Password?</a>
+              <a href="account.html?mode=signup" id="show-signup">Create Account</a>
+            </p>
+          </div>
+
+          <div id="panel-signup" hidden>
+            <h1>Create account</h1>
+            <p class="auth-lead">This account also works in the SpikeCoach desktop app.</p>
+            <form id="form-signup" novalidate>
+              <label class="auth-label" for="signup-name">Display Name</label>
+              <input class="auth-input" id="signup-name" name="name" type="text" autocomplete="nickname" maxlength="40" required>
+              <label class="auth-label" for="signup-email">Email</label>
+              <input class="auth-input" id="signup-email" name="email" type="email" autocomplete="email" required>
+              <label class="auth-label" for="signup-password">Password</label>
+              <input class="auth-input" id="signup-password" name="password" type="password" autocomplete="new-password" minlength="6" required>
+              <label class="auth-label" for="signup-confirm">Confirm Password</label>
+              <input class="auth-input" id="signup-confirm" name="confirm" type="password" autocomplete="new-password" minlength="6" required>
+              <p id="signup-message" class="auth-message" role="status" hidden></p>
+              <button class="btn btn-primary auth-submit" type="submit">Create Account</button>
+            </form>
+            <p class="auth-links">
+              <a href="account.html?mode=signin" id="show-signin-from-signup">Back to Sign In</a>
+            </p>
+          </div>
+
+          <div id="panel-reset" hidden>
+            <h1>Reset password</h1>
+            <p class="auth-lead">Enter your email and we will send a reset link.</p>
+            <form id="form-reset" novalidate>
+              <label class="auth-label" for="reset-email">Email</label>
+              <input class="auth-input" id="reset-email" name="email" type="email" autocomplete="email" required>
+              <p id="reset-message" class="auth-message" role="status" hidden></p>
+              <button class="btn btn-primary auth-submit" type="submit">Send Reset Email</button>
+            </form>
+            <p class="auth-links">
+              <a href="account.html?mode=signin" id="show-signin-from-reset">Back to Sign In</a>
+            </p>
+          </div>
+
+          <div id="panel-verify" hidden>
+            <h1>Check your email</h1>
+            <p class="auth-lead">We sent a verification link to <strong id="verify-email">your email</strong>.</p>
+            <p class="auth-lead">Open that link, then come back and sign in. The site stays locked to this screen until the email is verified.</p>
+            <p id="verify-message" class="auth-message" role="status" hidden></p>
+            <div class="auth-actions">
+              <button class="btn btn-primary" type="button" id="verify-check">I Verified My Email</button>
+              <button class="btn btn-secondary" type="button" id="verify-resend">Resend Verification Email</button>
+              <button class="btn btn-secondary" type="button" id="verify-back">Back to Sign In</button>
+              <button class="btn btn-secondary" type="button" id="verify-different">Use a Different Email</button>
+            </div>
+          </div>
+
+          <div id="panel-profile" hidden>
+            <h1>Account</h1>
+            <dl class="auth-profile">
+              <div>
+                <dt>Display Name</dt>
+                <dd id="profile-name"></dd>
+              </div>
+              <div>
+                <dt>Email</dt>
+                <dd id="profile-email"></dd>
+              </div>
+              <div>
+                <dt>Email Verified</dt>
+                <dd id="profile-verified">Yes</dd>
+              </div>
+            </dl>
+            <button class="btn btn-secondary" type="button" id="profile-signout">Sign Out</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <nav class="footer-nav" aria-label="Legal">
+        <ul>
+          <li><a href="index.html">Home</a></li>
+          <li><a href="privacy.html">Privacy Policy</a></li>
+          <li><a href="terms.html">Terms of Service</a></li>
+        </ul>
+      </nav>
+      <p class="riot-disclaimer">
+        SpikeCoach isn't endorsed by Riot Games and doesn't reflect the views or opinions of Riot Games or anyone officially involved in producing or managing Riot Games properties. Riot Games, and all associated properties are trademarks or registered trademarks of Riot Games, Inc.
+      </p>
+      <p class="footer-copy">&copy; <span id="year"></span> SpikeCoach. All rights reserved.</p>
+    </div>
+  </footer>
+
+  <script type="module" src="account.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>

@@ -47,6 +47,7 @@
           <li><a href="#about">About</a></li>
           <li><a href="#support">Support</a></li>
           <li><a href="download.html">Download</a></li>
+          <li class="nav-auth" id="nav-auth"></li>
         </ul>
       </nav>
     </div>
@@ -303,6 +304,27 @@
       </div>
     </section>
 
+    <section class="section community-stats reveal-on-scroll" id="community-stats" aria-labelledby="stats-title">
+      <div class="container">
+        <header class="section-header">
+          <h2 id="stats-title">Community</h2>
+          <p class="stats-demo-note">Demo figures. These placeholders are not live or verified user counts.</p>
+        </header>
+        <ul class="stats-grid">
+          <li class="stats-card">
+            <p class="stats-value" id="stat-weekly">371</p>
+            <p class="stats-label">Demo weekly users</p>
+            <p class="stats-detail">371 unique users from the past week</p>
+          </li>
+          <li class="stats-card">
+            <p class="stats-value" id="stat-accounts">1.4K</p>
+            <p class="stats-label">Demo accounts</p>
+            <p class="stats-detail">1.4K accounts created</p>
+          </li>
+        </ul>
+      </div>
+    </section>
+
     <section class="section section-alt reveal-on-scroll" id="about" aria-labelledby="about-title">
       <div class="container about-inner">
         <header class="section-header section-header-left">
@@ -356,6 +378,7 @@
     </div>
   </footer>
 
+  <script type="module" src="firebase-auth.js"></script>
   <script src="script.js"></script>
 </body>
 </html>

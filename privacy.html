@@ -22,6 +22,7 @@
         <ul>
           <li><a href="index.html">Home</a></li>
           <li><a href="download.html">Download</a></li>
+          <li class="nav-auth" id="nav-auth"></li>
         </ul>
       </nav>
     </div>
@@ -32,7 +33,7 @@
       <a class="legal-back" href="index.html">&larr; Back to home</a>
 
       <h1>Privacy Policy</h1>
-      <p class="legal-meta">Last updated: October 21, 2026</p>
+      <p class="legal-meta">Last updated: November 16, 2026</p>
 
       <p>
         SpikeCoach (&quot;we,&quot; &quot;us,&quot; or &quot;our&quot;) operates the SpikeCoach VALORANT companion
@@ -44,7 +45,7 @@
       <h2>1. Information You Provide</h2>
       <p>When you use SpikeCoach, you may provide:</p>
       <ul>
-        <li>Email address, password, and display name when you create a SpikeCoach account</li>
+        <li>Email address, password, and display name when you create a SpikeCoach account in the desktop app or on this website</li>
         <li>Messages you send to us for support or feedback</li>
         <li>Text you submit to the AI Coach feature (questions and prompts)</li>
       </ul>
@@ -56,9 +57,10 @@
       <h2>2. Authentication (Firebase)</h2>
       <p>
         SpikeCoach uses <strong>Firebase Authentication</strong> (Google) for email and password sign-in, email
-        verification, and account management. Firebase processes information such as your email address, display name,
-        and authentication credentials and tokens needed to sign you in. Google&apos;s privacy policies apply to
-        Firebase&apos;s processing.
+        verification, and account management. You can create an account and sign in on this website or in the
+        desktop app. Both use the same Firebase project. Firebase processes information such as your email address,
+        display name, and authentication credentials and tokens needed to sign you in. Google&apos;s privacy policies
+        apply to Firebase&apos;s processing.
       </p>
       <p>SpikeCoach does not use Firebase for Riot account authentication.</p>
 
@@ -206,6 +208,7 @@
     </div>
   </footer>
 
+  <script type="module" src="firebase-auth.js"></script>
   <script src="script.js"></script>
 </body>
 </html>
