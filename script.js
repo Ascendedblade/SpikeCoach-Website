@@ -3,7 +3,7 @@
 
   var SITE_STATS = {
     weeklyUsers: "371",
-    weeklyDetail: "371 unique users from the past week",
+    weeklyDetail: "371 unique users last week",
     totalAccounts: "1.4K",
     accountsDetail: "1.4K accounts created"
   };
