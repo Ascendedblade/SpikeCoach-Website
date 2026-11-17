@@ -158,6 +158,28 @@ document.addEventListener("spikecoach-auth", function(event) {
       arrowMode: false
     };
     var SPIKE_ICON_SRC = 'Other_images/Spike_nobg.png';
+    var SEQUENCE_COUNT = 8;
+    var PLAYBACK_CONFIG = {
+      transitionDuration: 1000,
+      pauseDuration: 500
+    };
+    var sequences = [];
+    var sequenceTouched = [];
+    var activeSequence = 0;
+    var playback = {
+      running: false,
+      paused: false,
+      token: 0,
+      timer: null,
+      fadeTimer: null,
+      playable: [],
+      step: 0,
+      transitionEndsAt: 0
+    };
+    var ZOOM_LEVELS = [1, 1.25, 1.5, 1.75, 2, 2.25, 2.5];
+    var mapView = { scale: 1, panX: 0, panY: 0 };
+    var panDrag = null;
+    var deleteReturnFocus = null;
 
     // Future: ability icons, arrows, annotations — render into strategyMapLayer or sibling SVG
     var layers = {
@@ -221,7 +243,7 @@ document.addEventListener("spikecoach-auth", function(event) {
     }
 
     function createEmptySlot() {
-      return { agentId: null, mapPos: null, abilityPlacements: [] };
+      return { instanceId: null, agentId: null, mapPos: null, abilityPlacements: [] };
     }
 
     function genMapItemId(prefix) {
@@ -276,6 +298,7 @@ document.addEventListener("spikecoach-auth", function(event) {
     }
 
     function removeAgentFromMap(teamId, slotIndex) {
+      if (playback.running) return;
       var slot = getTeam(teamId).slots[slotIndex];
       if (!slot || !slot.mapPos) return;
       slot.mapPos = null;
@@ -288,10 +311,12 @@ document.addEventListener("spikecoach-auth", function(event) {
           state.mapSelection.teamId === teamId && state.mapSelection.slotIndex === slotIndex) {
         clearMapSelection();
       }
+      noteEdit();
       syncMapScene();
     }
 
     function removeAbilityFromMap(teamId, slotIndex, abilityId) {
+      if (playback.running) return;
       var slot = getTeam(teamId).slots[slotIndex];
       if (!slot || !slot.abilityPlacements) return;
       slot.abilityPlacements = slot.abilityPlacements.filter(function(p) { return p.id !== abilityId; });
@@ -299,6 +324,7 @@ document.addEventListener("spikecoach-auth", function(event) {
       if (isSameMapSelection(state.mapSelection, 'ability', teamId, slotIndex, abilityId)) {
         state.mapSelection = null;
       }
+      noteEdit();
       syncMapScene();
     }
 
@@ -352,7 +378,9 @@ document.addEventListener("spikecoach-auth", function(event) {
     }
 
     function clientToMapPercent(clientX, clientY) {
-      var rect = dom.minimapContainer.getBoundingClientRect();
+      var surface = dom.mapContent || dom.minimapContainer;
+      var rect = surface.getBoundingClientRect();
+      if (!rect.width || !rect.height) return { x: 50, y: 50 };
       var x = ((clientX - rect.left) / rect.width) * 100;
       var y = ((clientY - rect.top) / rect.height) * 100;
       return { x: clampMapPct(x), y: clampMapPct(y) };
@@ -464,6 +492,7 @@ document.addEventListener("spikecoach-auth", function(event) {
     }
 
     function startSpikeTrayDrag(e) {
+      if (playback.running) return;
       if (e.button !== 0) return;
       e.preventDefault();
       var ghost = document.createElement('div');
@@ -708,26 +737,34 @@ document.addEventListener("spikecoach-auth", function(event) {
     }
 
     function setSlotAgent(teamId, slotIndex, agentId) {
+      if (playback.running) return;
       var slot = getTeam(teamId).slots[slotIndex];
+      slot.instanceId = genMapItemId('agent');
       slot.agentId = agentId;
       slot.mapPos = null;
+      slot.abilityPlacements = [];
+      noteEdit();
       closeAgentPicker();
       renderAllSlots();
     }
 
     function clearSlot(teamId, slotIndex) {
+      if (playback.running) return;
       if (isMapMarkerFocused(teamId, slotIndex) ||
           (state.mapSelection && state.mapSelection.teamId === teamId && state.mapSelection.slotIndex === slotIndex)) {
         clearMapSelection();
       }
       removeArrowsForSlot(teamId, slotIndex);
       getTeam(teamId).slots[slotIndex] = createEmptySlot();
+      noteEdit();
       closeAgentPicker();
       renderAllSlots();
     }
 
     function setSlotMapPos(teamId, slotIndex, mapPos) {
+      if (playback.running) return;
       getTeam(teamId).slots[slotIndex].mapPos = mapPos;
+      noteEdit();
       syncMapScene();
     }
 
@@ -747,6 +784,7 @@ document.addEventListener("spikecoach-auth", function(event) {
     }
 
     function openAgentPicker(teamId, slotIndex) {
+      if (playback.running) return;
       state.picker.teamId = teamId;
       state.picker.slotIndex = slotIndex;
       var slot = getTeam(teamId).slots[slotIndex];
@@ -886,9 +924,7 @@ document.addEventListener("spikecoach-auth", function(event) {
       }
       if (d.mode === 'ability-tray') {
         if (d.moved && d.trayButton) d.trayButton.dataset.suppressClick = '1';
-        var rectAb = dom.minimapContainer.getBoundingClientRect();
-        var insideAb = e.clientX >= rectAb.left && e.clientX <= rectAb.right &&
-          e.clientY >= rectAb.top && e.clientY <= rectAb.bottom;
+        var insideAb = isInsideMapClient(e.clientX, e.clientY);
         if (insideAb && d.moved) {
           getTeam(d.teamId).slots[d.slotIndex].abilityPlacements.push({
             id: genMapItemId('ab'),
@@ -947,10 +983,12 @@ document.addEventListener("spikecoach-auth", function(event) {
           });
         }
       }
+      if (sequenceDragChanged(d, e)) noteEdit();
       endDrag();
     }
 
     function startSlotToMapDrag(e, teamId, slotIndex, slotButton) {
+      if (playback.running) return;
       e.preventDefault();
       var slot = getTeam(teamId).slots[slotIndex];
       if (!slot.agentId) return;
@@ -978,6 +1016,7 @@ document.addEventListener("spikecoach-auth", function(event) {
     }
 
     function startMapMarkerDrag(e, teamId, slotIndex, groupEl) {
+      if (playback.running) return;
       e.preventDefault();
       var slot = getTeam(teamId).slots[slotIndex];
       if (!slot.agentId || !slot.mapPos) return;
@@ -1001,6 +1040,7 @@ document.addEventListener("spikecoach-auth", function(event) {
     }
 
     function startAbilityTrayDrag(e, teamId, slotIndex, ability, trayButton) {
+      if (playback.running) return;
       e.preventDefault();
       var slot = getTeam(teamId).slots[slotIndex];
       if (!slot.mapPos) return;
@@ -1029,6 +1069,7 @@ document.addEventListener("spikecoach-auth", function(event) {
     }
 
     function startAbilityMapDrag(e, teamId, slotIndex, abilityId, el) {
+      if (playback.running) return;
       e.preventDefault();
       state.drag = {
         mode: 'ability-map',
@@ -1047,6 +1088,7 @@ document.addEventListener("spikecoach-auth", function(event) {
     }
 
     function startArrowDraft(e, anchor, teamId) {
+      if (playback.running) return;
       var start = getAnchorMapPct(anchor);
       if (!start) return;
 
@@ -1078,6 +1120,7 @@ document.addEventListener("spikecoach-auth", function(event) {
     }
 
     function startArrowMove(e, arrowId) {
+      if (playback.running) return;
       var arrow = state.arrows.find(function(a) { return a.id === arrowId; });
       if (!arrow) return;
       detachArrowIfAnchored(arrow);
@@ -1095,6 +1138,7 @@ document.addEventListener("spikecoach-auth", function(event) {
     }
 
     function startArrowEndDrag(e, arrowId) {
+      if (playback.running) return;
       var arrow = state.arrows.find(function(a) { return a.id === arrowId; });
       if (!arrow) return;
       detachArrowIfAnchored(arrow);
@@ -1117,12 +1161,19 @@ document.addEventListener("spikecoach-auth", function(event) {
     }
 
     function serializeStrategy() {
+      saveActiveSequence();
       return {
-        version: 1,
+        version: 2,
         mapName: state.mapName,
-        teams: state.teams,
-        arrows: state.arrows,
-        spike: state.spike
+        activeSequence: activeSequence,
+        sequences: sequences.map(function(seq, index) {
+          return {
+            touched: !!sequenceTouched[index],
+            teams: seq.teams,
+            arrows: seq.arrows,
+            spike: seq.spike
+          };
+        })
       };
     }
 
@@ -1280,21 +1331,33 @@ document.addEventListener("spikecoach-auth", function(event) {
       });
     }
 
+    function minimapSrc(mapName) {
+      var pngMaps = { Summit: true, Lotus: true };
+      var ext = pngMaps[mapName] ? 'png' : 'webp';
+      return 'Map_minimaps/' + mapName + '_minimap.' + ext;
+    }
+
     function openMap(mapName) {
+      haltPlayback();
       state.mapName = mapName;
+      initTimelineBlank();
       resetTeams();
       dom.analyzeContainer.style.display = 'none';
       dom.minimapView.style.display = 'block';
       dom.mapTitle.textContent = mapName;
-      dom.minimapImage.src = 'Map_minimaps/' + mapName + '_minimap.webp';
+      dom.minimapImage.src = minimapSrc(mapName);
       closeAgentPicker();
+      resetMapView();
       renderAllSlots();
+      updateTimelineUI();
     }
 
     function closeMap() {
       dom.minimapView.style.display = 'none';
       dom.analyzeContainer.style.display = 'block';
       closeAgentPicker();
+      closeDeleteDialog();
+      endPan();
       endDrag();
     }
 
@@ -1314,6 +1377,692 @@ document.addEventListener("spikecoach-auth", function(event) {
         if (state.picker.teamId === null) return;
         clearSlot(state.picker.teamId, state.picker.slotIndex);
       });
+    }
+
+    function deepClone(value) {
+      return JSON.parse(JSON.stringify(value));
+    }
+
+    function scalePos(pos, toNormalized) {
+      if (!pos) return null;
+      var factor = toNormalized ? 0.01 : 100;
+      return { x: pos.x * factor, y: pos.y * factor };
+    }
+
+    function convertTeams(teams, toNormalized) {
+      var copy = deepClone(teams);
+      TEAM_IDS.forEach(function(teamId) {
+        copy[teamId].slots.forEach(function(slot) {
+          slot.mapPos = scalePos(slot.mapPos, toNormalized);
+          (slot.abilityPlacements || []).forEach(function(placement) {
+            placement.mapPos = scalePos(placement.mapPos, toNormalized);
+          });
+        });
+      });
+      return copy;
+    }
+
+    function convertArrows(arrows, toNormalized) {
+      return deepClone(arrows || []).map(function(arrow) {
+        arrow.startPct = scalePos(arrow.startPct, toNormalized);
+        arrow.endPct = scalePos(arrow.endPct, toNormalized);
+        return arrow;
+      });
+    }
+
+    function convertSpike(spike, toNormalized) {
+      if (!spike || !spike.mapPos) return null;
+      return { mapPos: scalePos(spike.mapPos, toNormalized) };
+    }
+
+    function emptySequence() {
+      return {
+        teams: { blue: createEmptyTeamState(), red: createEmptyTeamState() },
+        arrows: [],
+        spike: null
+      };
+    }
+
+    function initTimelineBlank() {
+      sequences = [];
+      sequenceTouched = [];
+      for (var i = 0; i < SEQUENCE_COUNT; i++) {
+        sequences.push(emptySequence());
+        sequenceTouched.push(false);
+      }
+      activeSequence = 0;
+    }
+
+    function noteEdit() {
+      if (playback.running) return;
+      sequenceTouched[activeSequence] = true;
+      updateTimelineUI();
+    }
+
+    function sequenceDragChanged(d, e) {
+      if (!d || !d.moved) return false;
+      if (d.mode === 'ability-tray' || d.mode === 'spike-tray') return isInsideMapClient(e.clientX, e.clientY);
+      return d.mode === 'slot' || d.mode === 'marker' || d.mode === 'ability-map' ||
+        d.mode === 'spike-map' || d.mode === 'arrow-draft' || d.mode === 'arrow-move' || d.mode === 'arrow-end';
+    }
+
+    function snapshotEditor() {
+      return {
+        teams: convertTeams(state.teams, true),
+        arrows: convertArrows(state.arrows, true),
+        spike: convertSpike(state.spike, true)
+      };
+    }
+
+    function saveActiveSequence() {
+      if (playback.running || !sequences.length) return;
+      sequences[activeSequence] = snapshotEditor();
+    }
+
+    function loadSequence(index) {
+      var seq = sequences[index] || emptySequence();
+      state.teams = convertTeams(seq.teams, false);
+      state.arrows = convertArrows(seq.arrows, false);
+      state.spike = convertSpike(seq.spike, false);
+      state.mapSelection = null;
+      state.focusedMapAgent = null;
+      closeAgentPicker();
+      renderAllSlots();
+    }
+
+    function nearestTouchedBefore(index) {
+      for (var i = index - 1; i >= 0; i--) {
+        if (sequenceTouched[i]) return i;
+      }
+      return null;
+    }
+
+    function selectSequence(index) {
+      if (playback.running) haltPlayback();
+      if (index === activeSequence) {
+        updateTimelineUI();
+        return;
+      }
+      saveActiveSequence();
+      if (!sequenceTouched[index]) {
+        var source = nearestTouchedBefore(index);
+        if (source !== null) {
+          sequences[index] = deepClone(sequences[source]);
+          sequenceTouched[index] = true;
+        }
+      }
+      activeSequence = index;
+      loadSequence(index);
+      updateTimelineUI();
+    }
+
+    function duplicatePrevious() {
+      if (playback.running || activeSequence === 0) return;
+      sequences[activeSequence] = deepClone(sequences[activeSequence - 1]);
+      sequenceTouched[activeSequence] = true;
+      loadSequence(activeSequence);
+      updateTimelineUI();
+    }
+
+    function playableIndices() {
+      saveActiveSequence();
+      var list = [];
+      for (var i = 0; i < SEQUENCE_COUNT; i++) {
+        if (sequenceTouched[i]) list.push(i);
+      }
+      return list;
+    }
+
+    function clearPlaybackTimer() {
+      if (playback.timer) {
+        window.clearTimeout(playback.timer);
+        playback.timer = null;
+      }
+    }
+
+    function clearFadeTimer() {
+      if (playback.fadeTimer) {
+        window.clearTimeout(playback.fadeTimer);
+        playback.fadeTimer = null;
+      }
+    }
+
+    function showPlaybackLayer(on) {
+      if (!dom.playbackLayer) return;
+      dom.playbackLayer.hidden = !on;
+      if (dom.entitiesLayer) dom.entitiesLayer.style.visibility = on ? 'hidden' : '';
+      if (dom.arrowSvg) dom.arrowSvg.style.visibility = on ? 'hidden' : '';
+      if (!on) dom.playbackLayer.innerHTML = '';
+    }
+
+    function haltPlayback() {
+      playback.token += 1;
+      clearPlaybackTimer();
+      clearFadeTimer();
+      playback.running = false;
+      playback.paused = false;
+      playback.playable = [];
+      playback.step = 0;
+      showPlaybackLayer(false);
+      if (dom.workspace) dom.workspace.classList.remove('is-playing');
+    }
+
+    function indexById(list) {
+      var map = {};
+      list.forEach(function(item) { map[item.id] = item; });
+      return map;
+    }
+
+    function collectAgents(seq) {
+      var list = [];
+      if (!seq) return list;
+      TEAM_IDS.forEach(function(teamId) {
+        seq.teams[teamId].slots.forEach(function(slot) {
+          if (!slot.instanceId || !slot.agentId || !slot.mapPos) return;
+          list.push({
+            id: slot.instanceId,
+            teamId: teamId,
+            character: slot.agentId,
+            x: slot.mapPos.x,
+            y: slot.mapPos.y
+          });
+        });
+      });
+      return list;
+    }
+
+    function collectAbilities(seq) {
+      var list = [];
+      if (!seq) return list;
+      TEAM_IDS.forEach(function(teamId) {
+        seq.teams[teamId].slots.forEach(function(slot) {
+          (slot.abilityPlacements || []).forEach(function(placement) {
+            if (!placement.id || !placement.mapPos) return;
+            list.push({
+              id: placement.id,
+              teamId: teamId,
+              src: placement.src,
+              label: placement.label,
+              x: placement.mapPos.x,
+              y: placement.mapPos.y
+            });
+          });
+        });
+      });
+      return list;
+    }
+
+    function collectSpike(seq) {
+      if (!seq || !seq.spike || !seq.spike.mapPos) return [];
+      return [{ id: 'spike', x: seq.spike.mapPos.x, y: seq.spike.mapPos.y }];
+    }
+
+    function placePlayMarker(el, x, y, animate) {
+      if (animate) el.classList.remove('is-instant');
+      else el.classList.add('is-instant');
+      el.style.left = (x * 100) + '%';
+      el.style.top = (y * 100) + '%';
+    }
+
+    function buildPlayAgent(item) {
+      var el = document.createElement('div');
+      el.className = 'strategy-play-marker strategy-play-agent team-' + item.teamId;
+      var img = document.createElement('img');
+      img.src = agentIconSrc(item.character);
+      img.alt = '';
+      img.draggable = false;
+      el.appendChild(img);
+      return el;
+    }
+
+    function buildPlayAbility(item) {
+      var el = document.createElement('div');
+      el.className = 'strategy-play-marker strategy-play-ability team-' + item.teamId;
+      var img = document.createElement('img');
+      img.src = item.src;
+      img.alt = item.label || '';
+      img.draggable = false;
+      el.appendChild(img);
+      return el;
+    }
+
+    function buildPlaySpike() {
+      var el = document.createElement('div');
+      el.className = 'strategy-play-marker strategy-play-spike';
+      var img = document.createElement('img');
+      img.src = SPIKE_ICON_SRC;
+      img.alt = '';
+      img.draggable = false;
+      el.appendChild(img);
+      return el;
+    }
+
+    function markerNode(kind, id) {
+      return dom.playbackLayer.querySelector('[data-kind="' + kind + '"][data-play-id="' + id + '"]');
+    }
+
+    function syncPlayMarkers(kind, fromMap, toMap, animate, build) {
+      var removals = [];
+      Object.keys(toMap).forEach(function(id) {
+        var next = toMap[id];
+        var prev = fromMap[id];
+        var el = markerNode(kind, id);
+        if (!el) {
+          el = build(next);
+          el.dataset.kind = kind;
+          el.dataset.playId = id;
+          dom.playbackLayer.appendChild(el);
+        } else if (kind === 'agent' && el.firstChild && next.character) {
+          el.firstChild.src = agentIconSrc(next.character);
+          el.className = 'strategy-play-marker strategy-play-agent team-' + next.teamId;
+        }
+        if (prev && animate) {
+          placePlayMarker(el, prev.x, prev.y, false);
+          el.style.opacity = '1';
+          void el.offsetWidth;
+          placePlayMarker(el, next.x, next.y, true);
+          el.style.opacity = '1';
+        } else if (!prev && animate) {
+          placePlayMarker(el, next.x, next.y, false);
+          el.style.opacity = '0';
+          void el.offsetWidth;
+          el.classList.remove('is-instant');
+          el.style.opacity = '1';
+        } else {
+          placePlayMarker(el, next.x, next.y, false);
+          el.style.opacity = '1';
+        }
+      });
+      Object.keys(fromMap).forEach(function(id) {
+        if (toMap[id]) return;
+        var el = markerNode(kind, id);
+        if (!el) return;
+        if (animate) {
+          el.classList.remove('is-instant');
+          el.style.opacity = '0';
+          removals.push(el);
+        } else if (el.parentNode) {
+          el.parentNode.removeChild(el);
+        }
+      });
+      Array.prototype.forEach.call(dom.playbackLayer.querySelectorAll('[data-kind="' + kind + '"]'), function(el) {
+        if (!toMap[el.dataset.playId] && !fromMap[el.dataset.playId] && el.parentNode) {
+          el.parentNode.removeChild(el);
+        }
+      });
+      return removals;
+    }
+
+    function renderPlaybackFrame(toIndex, fromIndex, animate) {
+      var fromSeq = fromIndex === null || fromIndex === undefined ? null : sequences[fromIndex];
+      var toSeq = sequences[toIndex];
+      var removals = [];
+      removals = removals.concat(syncPlayMarkers('agent', indexById(collectAgents(fromSeq)), indexById(collectAgents(toSeq)), animate, buildPlayAgent));
+      removals = removals.concat(syncPlayMarkers('ability', indexById(collectAbilities(fromSeq)), indexById(collectAbilities(toSeq)), animate, buildPlayAbility));
+      removals = removals.concat(syncPlayMarkers('spike', indexById(collectSpike(fromSeq)), indexById(collectSpike(toSeq)), animate, buildPlaySpike));
+      clearFadeTimer();
+      if (removals.length) {
+        var token = playback.token;
+        playback.fadeTimer = window.setTimeout(function() {
+          if (token !== playback.token) return;
+          removals.forEach(function(el) {
+            if (el.parentNode) el.parentNode.removeChild(el);
+          });
+        }, PLAYBACK_CONFIG.transitionDuration);
+      }
+    }
+
+    function shownSequenceIndex() {
+      if (playback.running && playback.playable.length) return playback.playable[playback.step];
+      return activeSequence;
+    }
+
+    function finishPlayback(index) {
+      haltPlayback();
+      activeSequence = index;
+      loadSequence(index);
+      updateTimelineUI();
+    }
+
+    function advancePlayback(token) {
+      if (token !== playback.token || !playback.running || playback.paused) return;
+      if (playback.step >= playback.playable.length - 1) {
+        finishPlayback(playback.playable[playback.step]);
+        return;
+      }
+      var fromIndex = playback.playable[playback.step];
+      playback.step += 1;
+      var toIndex = playback.playable[playback.step];
+      renderPlaybackFrame(toIndex, fromIndex, true);
+      playback.transitionEndsAt = Date.now() + PLAYBACK_CONFIG.transitionDuration;
+      updateTimelineUI();
+      playback.timer = window.setTimeout(function() {
+        advancePlayback(token);
+      }, PLAYBACK_CONFIG.transitionDuration + PLAYBACK_CONFIG.pauseDuration);
+    }
+
+    function startPlayback() {
+      if (playback.running && playback.paused) {
+        playback.paused = false;
+        var token = playback.token;
+        var wait = Math.max(0, playback.transitionEndsAt - Date.now());
+        clearPlaybackTimer();
+        playback.timer = window.setTimeout(function() {
+          advancePlayback(token);
+        }, wait);
+        updateTimelineUI();
+        return;
+      }
+      if (playback.running) return;
+      var list = playableIndices();
+      if (!list.length) return;
+      var startAt = list.indexOf(activeSequence);
+      if (startAt < 0) startAt = 0;
+      playback.running = true;
+      playback.paused = false;
+      playback.playable = list;
+      playback.step = startAt;
+      playback.token += 1;
+      var token = playback.token;
+      if (dom.workspace) dom.workspace.classList.add('is-playing');
+      showPlaybackLayer(true);
+      renderPlaybackFrame(list[startAt], null, false);
+      updateTimelineUI();
+      if (startAt >= list.length - 1) {
+        finishPlayback(list[startAt]);
+        return;
+      }
+      playback.transitionEndsAt = Date.now();
+      playback.timer = window.setTimeout(function() {
+        advancePlayback(token);
+      }, PLAYBACK_CONFIG.pauseDuration);
+    }
+
+    function pausePlayback() {
+      if (!playback.running || playback.paused) return;
+      playback.paused = true;
+      clearPlaybackTimer();
+      updateTimelineUI();
+    }
+
+    function restartPlayback() {
+      haltPlayback();
+      saveActiveSequence();
+      activeSequence = 0;
+      loadSequence(0);
+      updateTimelineUI();
+    }
+
+    function updateTimelineUI() {
+      if (!dom.sequenceList) return;
+      var shown = shownSequenceIndex();
+      Array.prototype.forEach.call(dom.sequenceList.children, function(btn) {
+        var index = Number(btn.dataset.sequence);
+        btn.classList.toggle('is-selected', index === activeSequence && !playback.running);
+        btn.classList.toggle('is-current', index === shown);
+        btn.classList.toggle('has-data', !!sequenceTouched[index]);
+        btn.setAttribute('aria-selected', index === shown ? 'true' : 'false');
+      });
+      if (dom.duplicateBtn) dom.duplicateBtn.disabled = playback.running || activeSequence === 0;
+      if (dom.playBtn) dom.playBtn.disabled = playback.running && !playback.paused;
+      if (dom.pauseBtn) dom.pauseBtn.disabled = !playback.running || playback.paused;
+    }
+
+    function bindTimeline() {
+      if (!dom.sequenceList) return;
+      dom.sequenceList.innerHTML = '';
+      for (var i = 0; i < SEQUENCE_COUNT; i++) {
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'strategy-sequence-btn';
+        btn.dataset.sequence = String(i);
+        btn.textContent = String(i + 1);
+        btn.setAttribute('role', 'tab');
+        btn.setAttribute('aria-label', 'Sequence ' + (i + 1));
+        btn.addEventListener('click', function() {
+          selectSequence(Number(this.dataset.sequence));
+        });
+        dom.sequenceList.appendChild(btn);
+      }
+      if (dom.duplicateBtn) dom.duplicateBtn.addEventListener('click', duplicatePrevious);
+      if (dom.playBtn) dom.playBtn.addEventListener('click', startPlayback);
+      if (dom.pauseBtn) dom.pauseBtn.addEventListener('click', pausePlayback);
+      if (dom.restartBtn) dom.restartBtn.addEventListener('click', restartPlayback);
+    }
+
+    function applySerializedStrategy(data) {
+      if (!data) return;
+      haltPlayback();
+      initTimelineBlank();
+      if (data.version === 1 && data.teams) {
+        sequences[0] = {
+          teams: convertTeams(data.teams, true),
+          arrows: convertArrows(data.arrows, true),
+          spike: convertSpike(data.spike, true)
+        };
+        sequenceTouched[0] = true;
+        activeSequence = 0;
+        if (data.mapName) state.mapName = data.mapName;
+        loadSequence(0);
+        updateTimelineUI();
+        return;
+      }
+      var incoming = data.sequences || [];
+      for (var i = 0; i < SEQUENCE_COUNT; i++) {
+        var src = incoming[i];
+        if (!src) continue;
+        sequences[i] = {
+          teams: src.teams || emptySequence().teams,
+          arrows: src.arrows || [],
+          spike: src.spike || null
+        };
+        sequenceTouched[i] = !!src.touched;
+      }
+      activeSequence = Math.max(0, Math.min(SEQUENCE_COUNT - 1, data.activeSequence || 0));
+      if (data.mapName) state.mapName = data.mapName;
+      loadSequence(activeSequence);
+      updateTimelineUI();
+    }
+
+    function clampPan() {
+      var min = 1 - mapView.scale;
+      mapView.panX = Math.min(0, Math.max(min, mapView.panX));
+      mapView.panY = Math.min(0, Math.max(min, mapView.panY));
+    }
+
+    function applyMapView() {
+      clampPan();
+      if (dom.mapContent) {
+        dom.mapContent.style.transform =
+          'translate(' + (mapView.panX * 100) + '%, ' + (mapView.panY * 100) + '%) scale(' + mapView.scale + ')';
+      }
+      if (dom.minimapContainer) dom.minimapContainer.classList.toggle('is-zoomed', mapView.scale > 1);
+      if (dom.zoomLevel) {
+        var pct = Math.round(mapView.scale * 100);
+        dom.zoomLevel.textContent = pct + '%';
+        dom.zoomLevel.setAttribute('aria-label', 'Zoom ' + pct + ' percent. Activate to reset to 100 percent');
+      }
+      if (dom.zoomOut) dom.zoomOut.disabled = mapView.scale <= ZOOM_LEVELS[0];
+      if (dom.zoomIn) dom.zoomIn.disabled = mapView.scale >= ZOOM_LEVELS[ZOOM_LEVELS.length - 1];
+    }
+
+    function zoomAt(nextScale, clientX, clientY) {
+      var viewport = dom.minimapContainer;
+      var view = viewport ? viewport.getBoundingClientRect() : null;
+      var anchorX = clientX;
+      var anchorY = clientY;
+      if (view && (anchorX == null || anchorY == null)) {
+        anchorX = view.left + view.width / 2;
+        anchorY = view.top + view.height / 2;
+      }
+      if (view && view.width && view.height && anchorX != null && anchorY != null) {
+        var nx = (anchorX - view.left) / view.width;
+        var ny = (anchorY - view.top) / view.height;
+        var cx = (nx - mapView.panX) / mapView.scale;
+        var cy = (ny - mapView.panY) / mapView.scale;
+        mapView.scale = nextScale;
+        mapView.panX = nx - cx * nextScale;
+        mapView.panY = ny - cy * nextScale;
+      } else {
+        mapView.scale = nextScale;
+      }
+      applyMapView();
+    }
+
+    function nearestZoomIndex() {
+      var index = 0;
+      var best = Infinity;
+      ZOOM_LEVELS.forEach(function(level, i) {
+        var distance = Math.abs(level - mapView.scale);
+        if (distance < best) {
+          best = distance;
+          index = i;
+        }
+      });
+      return index;
+    }
+
+    function stepZoom(direction, clientX, clientY) {
+      var index = nearestZoomIndex() + direction;
+      if (index < 0) index = 0;
+      if (index > ZOOM_LEVELS.length - 1) index = ZOOM_LEVELS.length - 1;
+      zoomAt(ZOOM_LEVELS[index], clientX, clientY);
+    }
+
+    function resetMapView() {
+      mapView.scale = 1;
+      mapView.panX = 0;
+      mapView.panY = 0;
+      applyMapView();
+    }
+
+    function endPan() {
+      panDrag = null;
+      if (dom.minimapContainer) dom.minimapContainer.classList.remove('is-panning');
+      document.removeEventListener('pointermove', onPanMove);
+      document.removeEventListener('pointerup', endPan);
+      document.removeEventListener('pointercancel', endPan);
+    }
+
+    function onPanMove(e) {
+      if (!panDrag || !dom.minimapContainer) return;
+      var rect = dom.minimapContainer.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
+      mapView.panX = panDrag.panX + (e.clientX - panDrag.x) / rect.width;
+      mapView.panY = panDrag.panY + (e.clientY - panDrag.y) / rect.height;
+      applyMapView();
+    }
+
+    function isStrategyObjectTarget(target) {
+      if (!target || !target.closest) return false;
+      return !!target.closest(
+        '.strategy-marker-group, .agent-marker, .strategy-ability-map-marker, .strategy-ability-btn, .strategy-spike-map-marker, .strategy-arrow-hit, .strategy-arrow-end'
+      );
+    }
+
+    function startPan(e) {
+      if (e.button !== 0) return;
+      if (mapView.scale <= 1) return;
+      if (state.drag || panDrag) return;
+      if (isStrategyObjectTarget(e.target)) return;
+      e.preventDefault();
+      panDrag = {
+        x: e.clientX,
+        y: e.clientY,
+        panX: mapView.panX,
+        panY: mapView.panY
+      };
+      if (dom.minimapContainer) dom.minimapContainer.classList.add('is-panning');
+      document.addEventListener('pointermove', onPanMove);
+      document.addEventListener('pointerup', endPan);
+      document.addEventListener('pointercancel', endPan);
+    }
+
+    function onMapWheel(e) {
+      if (!dom.minimapContainer) return;
+      e.preventDefault();
+      var horizontal = Math.abs(e.deltaX) > Math.abs(e.deltaY) && !e.ctrlKey && !e.metaKey;
+      if (horizontal && mapView.scale > 1) {
+        var rect = dom.minimapContainer.getBoundingClientRect();
+        if (!rect.width || !rect.height) return;
+        mapView.panX -= e.deltaX / rect.width;
+        mapView.panY -= e.deltaY / rect.height;
+        applyMapView();
+        return;
+      }
+      stepZoom(e.deltaY > 0 ? -1 : 1, e.clientX, e.clientY);
+    }
+
+    function openDeleteDialog() {
+      if (!dom.deleteDialog) return;
+      deleteReturnFocus = document.activeElement;
+      dom.deleteDialog.hidden = false;
+      if (dom.deleteCancel) dom.deleteCancel.focus();
+    }
+
+    function closeDeleteDialog() {
+      if (!dom.deleteDialog || dom.deleteDialog.hidden) return;
+      dom.deleteDialog.hidden = true;
+      if (deleteReturnFocus && deleteReturnFocus.focus) deleteReturnFocus.focus();
+      deleteReturnFocus = null;
+    }
+
+    function deleteEverything() {
+      closeDeleteDialog();
+      endPan();
+      endDrag();
+      haltPlayback();
+      closeAgentPicker();
+      initTimelineBlank();
+      resetTeams();
+      updateTimelineUI();
+    }
+
+    function onDeleteDialogKeydown(e) {
+      if (!dom.deleteDialog || dom.deleteDialog.hidden) return false;
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        closeDeleteDialog();
+        return true;
+      }
+      if (e.key !== 'Tab') return true;
+      var first = dom.deleteCancel;
+      var last = dom.deleteConfirm;
+      if (!first || !last) return true;
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+      return true;
+    }
+
+    function bindMapView() {
+      dom.mapContent = document.getElementById('strategyMapContent');
+      dom.zoomOut = document.getElementById('strategyZoomOut');
+      dom.zoomIn = document.getElementById('strategyZoomIn');
+      dom.zoomLevel = document.getElementById('strategyZoomLevel');
+      dom.resetViewBtn = document.getElementById('strategyResetView');
+      dom.deleteEverythingBtn = document.getElementById('strategyDeleteEverything');
+      dom.deleteDialog = document.getElementById('strategyDeleteDialog');
+      dom.deleteCancel = document.getElementById('strategyDeleteCancel');
+      dom.deleteConfirm = document.getElementById('strategyDeleteConfirm');
+      dom.deleteBackdrop = document.getElementById('strategyDeleteBackdrop');
+      if (dom.zoomOut) dom.zoomOut.addEventListener('click', function() { stepZoom(-1); });
+      if (dom.zoomIn) dom.zoomIn.addEventListener('click', function() { stepZoom(1); });
+      if (dom.zoomLevel) dom.zoomLevel.addEventListener('click', resetMapView);
+      if (dom.resetViewBtn) dom.resetViewBtn.addEventListener('click', resetMapView);
+      if (dom.deleteEverythingBtn) dom.deleteEverythingBtn.addEventListener('click', openDeleteDialog);
+      if (dom.deleteCancel) dom.deleteCancel.addEventListener('click', closeDeleteDialog);
+      if (dom.deleteBackdrop) dom.deleteBackdrop.addEventListener('click', closeDeleteDialog);
+      if (dom.deleteConfirm) dom.deleteConfirm.addEventListener('click', deleteEverything);
+      if (dom.minimapContainer) {
+        dom.minimapContainer.addEventListener('pointerdown', startPan);
+        dom.minimapContainer.addEventListener('wheel', onMapWheel, { passive: false });
+      }
+      applyMapView();
     }
 
     function init() {
@@ -1358,6 +2107,7 @@ document.addEventListener("spikecoach-auth", function(event) {
       dom.arrowModeBtn = document.getElementById('strategyArrowModeBtn');
       if (dom.arrowModeBtn) {
         dom.arrowModeBtn.addEventListener('click', function() {
+          if (playback.running) return;
           state.arrowMode = !state.arrowMode;
           dom.arrowModeBtn.classList.toggle('is-active', state.arrowMode);
           dom.arrowModeBtn.setAttribute('aria-pressed', state.arrowMode ? 'true' : 'false');
@@ -1373,6 +2123,8 @@ document.addEventListener("spikecoach-auth", function(event) {
       }
 
       document.addEventListener('keydown', function(e) {
+        if (onDeleteDialogKeydown(e)) return;
+        if (playback.running) return;
         if (!dom.minimapView || dom.minimapView.style.display === 'none') return;
         if (e.key !== 'Delete' && e.key !== 'Backspace') return;
         if (isEditableTarget(document.activeElement)) return;
@@ -1381,9 +2133,23 @@ document.addEventListener("spikecoach-auth", function(event) {
         deleteSelectedMapItem();
       });
 
+      dom.workspace = document.getElementById('strategySection');
+      dom.playbackLayer = document.getElementById('strategyPlaybackLayer');
+      dom.sequenceList = document.getElementById('strategySequenceList');
+      dom.duplicateBtn = document.getElementById('strategyDuplicateBtn');
+      dom.playBtn = document.getElementById('strategyPlayBtn');
+      dom.pauseBtn = document.getElementById('strategyPauseBtn');
+      dom.restartBtn = document.getElementById('strategyRestartBtn');
+      if (dom.playbackLayer) {
+        dom.playbackLayer.style.setProperty('--strategy-move', PLAYBACK_CONFIG.transitionDuration + 'ms');
+      }
+      initTimelineBlank();
       resetTeams();
+      bindMapView();
+      bindTimeline();
       bindMapSelector();
       bindPicker();
+      updateTimelineUI();
     }
 
     return {
@@ -1392,6 +2158,7 @@ document.addEventListener("spikecoach-auth", function(event) {
       showMapPicker: closeMap,
       exportStrategyBoardPNG: exportStrategyBoardPNG,
       serializeStrategy: serializeStrategy,
+      applySerializedStrategy: applySerializedStrategy,
       layers: layers,
       getState: function() { return state; }
     };

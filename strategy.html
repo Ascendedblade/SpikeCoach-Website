@@ -104,6 +104,15 @@
           <div class="container">
             <button class="back-button" id="backToAnalyzeList" type="button">Back to Maps</button>
             <h2 class="analyze-map-title" id="analyzeMapTitle"></h2>
+            <div class="strategy-timeline" id="strategyTimeline">
+              <div class="strategy-sequence-list" id="strategySequenceList" role="tablist" aria-label="Strategy sequences"></div>
+              <div class="strategy-timeline-controls">
+                <button type="button" class="strategy-tool-btn" id="strategyDuplicateBtn">Duplicate Previous</button>
+                <button type="button" class="strategy-tool-btn" id="strategyPlayBtn">Play</button>
+                <button type="button" class="strategy-tool-btn" id="strategyPauseBtn">Pause</button>
+                <button type="button" class="strategy-tool-btn" id="strategyRestartBtn">Restart</button>
+              </div>
+            </div>
             <div class="strategy-planner-layout">
               <aside class="strategy-team-panel strategy-team-panel--blue" id="strategyTeamBluePanel">
                 <h3 class="strategy-team-heading">Blue Team</h3>
@@ -117,12 +126,24 @@
                   <button type="button" class="strategy-tool-btn" id="strategyArrowModeBtn" aria-pressed="false">Arrow</button>
                   <button type="button" class="strategy-download-btn" id="strategyDownloadBtn">Download Strategy</button>
                 </div>
-                <p class="strategy-help">Drag agents and abilities onto the map. Right-click, or turn on Arrow, to draw a path. Drag a piece off the map to remove it.</p>
+                <p class="strategy-help">Drag agents and abilities onto the map. Right-click, or turn on Arrow, to draw a path. Drag a piece off the map to remove it. Each number is a step in the play. Scroll to zoom, and drag empty map space to pan.</p>
+                <div class="strategy-view-bar">
+                  <div class="strategy-zoom" role="group" aria-label="Map zoom">
+                    <button type="button" class="strategy-zoom-btn" id="strategyZoomOut" aria-label="Zoom out">−</button>
+                    <button type="button" class="strategy-zoom-level" id="strategyZoomLevel" aria-label="Reset zoom to 100 percent">100%</button>
+                    <button type="button" class="strategy-zoom-btn" id="strategyZoomIn" aria-label="Zoom in">+</button>
+                  </div>
+                  <button type="button" class="strategy-tool-btn" id="strategyResetView">Reset View</button>
+                  <button type="button" class="strategy-danger-btn" id="strategyDeleteEverything">Delete Everything</button>
+                </div>
                 <div class="minimap-container strategy-minimap" id="strategyExportRoot">
-                  <img src="" alt="" class="minimap-image" id="minimapImage">
-                  <div class="strategy-map-layer" id="strategyMapLayer" aria-hidden="true">
-                    <svg class="strategy-arrow-svg" id="strategyArrowSvg" viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
-                    <div class="strategy-entities-layer" id="strategyEntitiesLayer"></div>
+                  <div class="strategy-map-content" id="strategyMapContent">
+                    <img src="" alt="" class="minimap-image" id="minimapImage" draggable="false">
+                    <div class="strategy-map-layer" id="strategyMapLayer" aria-hidden="true">
+                      <svg class="strategy-arrow-svg" id="strategyArrowSvg" viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
+                      <div class="strategy-entities-layer" id="strategyEntitiesLayer"></div>
+                      <div class="strategy-playback-layer" id="strategyPlaybackLayer" hidden></div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -141,6 +162,17 @@
               </div>
               <button type="button" class="strategy-agent-remove-btn" id="strategyAgentRemoveBtn" hidden>Remove agent</button>
               <div class="strategy-agent-picker-grid" id="strategyAgentPickerGrid"></div>
+            </div>
+          </div>
+          <div class="strategy-confirm" id="strategyDeleteDialog" hidden>
+            <div class="strategy-confirm-backdrop" id="strategyDeleteBackdrop"></div>
+            <div class="strategy-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="strategyDeleteTitle" aria-describedby="strategyDeleteText">
+              <h4 id="strategyDeleteTitle">Delete everything?</h4>
+              <p id="strategyDeleteText">This will remove all agents, abilities, and sequence data from this strategy. This action cannot be undone.</p>
+              <div class="strategy-confirm-actions">
+                <button type="button" class="strategy-tool-btn" id="strategyDeleteCancel">Cancel</button>
+                <button type="button" class="strategy-danger-btn strategy-danger-btn--fill" id="strategyDeleteConfirm">Delete Everything</button>
+              </div>
             </div>
           </div>
         </div>
