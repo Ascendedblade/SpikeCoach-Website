@@ -88,6 +88,12 @@ function showSignedOut() {
   else showPanel("signin");
 }
 
+function strategyRedirectTarget() {
+  var redirect = new URLSearchParams(window.location.search).get("redirect");
+  if (redirect === "strategy") return "strategy.html";
+  return "";
+}
+
 function showForUser(user) {
   if (!user) {
     showSignedOut();
@@ -96,6 +102,11 @@ function showForUser(user) {
   if (!user.emailVerified) {
     if (verifyEmailEl) verifyEmailEl.textContent = user.email || "your email";
     showPanel("verify");
+    return;
+  }
+  var next = strategyRedirectTarget();
+  if (next) {
+    window.location.replace(next);
     return;
   }
   if (profileNameEl) profileNameEl.textContent = user.displayName || "Not set";

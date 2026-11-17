@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Strategy - SpikeCoach</title>
+  <meta name="description" content="Plan VALORANT setups, positions, and plays with the SpikeCoach Strategy board.">
+  <meta name="theme-color" content="#0d0d12">
+  <link rel="icon" href="assets/spikecoach_icon.png" type="image/png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to main content</a>
+
+  <header class="site-header" id="top">
+    <div class="container header-inner">
+      <a class="logo" href="index.html" aria-label="SpikeCoach home">
+        <img src="assets/spikecoach_icon.png" alt="" width="40" height="40" class="logo-mark">
+        <span class="logo-text">SpikeCoach</span>
+      </a>
+      <button type="button" class="nav-toggle" aria-expanded="false" aria-controls="site-nav" aria-label="Open menu">
+        <span class="nav-toggle-bar"></span>
+        <span class="nav-toggle-bar"></span>
+        <span class="nav-toggle-bar"></span>
+      </button>
+      <nav class="site-nav" id="site-nav" aria-label="Primary">
+        <ul>
+          <li><a href="index.html#features">Features</a></li>
+          <li><a href="index.html#about">About</a></li>
+          <li><a href="index.html#support">Support</a></li>
+          <li><a href="strategy.html" aria-current="page">Strategy</a></li>
+          <li><a href="account.html?mode=signup&amp;intent=download" class="nav-download">Download</a></li>
+          <li class="nav-auth" id="nav-auth"></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main" class="strategy-page">
+    <div class="container strategy-gate" id="strategy-loading">
+      <p class="strategy-loading" role="status">Checking your account…</p>
+    </div>
+
+    <div class="container strategy-gate" id="strategy-locked" hidden>
+      <div class="auth-panel">
+        <img src="assets/spikecoach_icon.png" width="56" height="56" alt="" class="auth-mark">
+        <h1>Sign in to access Strategy</h1>
+        <p class="auth-lead">Create and save strategies from your SpikeCoach account.</p>
+        <div class="auth-actions">
+          <a class="btn btn-primary" href="account.html?mode=signin&amp;redirect=strategy">Sign In</a>
+          <a class="btn btn-secondary" href="account.html?mode=signup&amp;redirect=strategy">Create Account</a>
+        </div>
+      </div>
+    </div>
+
+    <div class="container strategy-gate" id="strategy-verify" hidden>
+      <div class="auth-panel">
+        <img src="assets/spikecoach_icon.png" width="56" height="56" alt="" class="auth-mark">
+        <h1>Check your email</h1>
+        <p class="auth-lead">We sent a verification link to <strong id="strategy-verify-email">your email</strong>.</p>
+        <p class="auth-lead">Open that link, then come back and confirm. Strategy stays locked until the email is verified.</p>
+        <p id="strategy-verify-message" class="auth-message" role="status" hidden></p>
+        <div class="auth-actions">
+          <button class="btn btn-primary" type="button" id="strategy-verify-check">I Verified My Email</button>
+          <button class="btn btn-secondary" type="button" id="strategy-verify-resend">Resend Verification Email</button>
+          <button class="btn btn-secondary" type="button" id="strategy-verify-back">Back to Sign In</button>
+          <button class="btn btn-secondary" type="button" id="strategy-verify-different">Use a Different Email</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="strategy-app" hidden>
+      <div class="container strategy-intro">
+        <p class="section-eyebrow">Planning</p>
+        <h1>Strategy</h1>
+        <p class="strategy-lead">Plan setups, positions, and plays before your match.</p>
+        <p class="strategy-user" id="strategy-user" hidden></p>
+      </div>
+
+      <div class="strategy-workspace" id="strategySection">
+        <div class="container strategy-maps-container">
+          <div class="strategy-maps-header">
+            <h2 class="strategy-board-title">Strategy Planner</h2>
+            <p class="strategy-maps-subtitle">Select a map to analyze</p>
+          </div>
+          <div class="maps-grid" id="analyzeMapsGrid">
+            <button type="button" class="map-card" data-map="Abyss"><img data-src="Map_Loading/Loading_Screen_Abyss.webp" alt="" class="map-image" decoding="async"><span class="map-overlay"><span class="map-name">Abyss</span></span></button>
+            <button type="button" class="map-card" data-map="Ascent"><img data-src="Map_Loading/Loading_Screen_Ascent.webp" alt="" class="map-image" decoding="async"><span class="map-overlay"><span class="map-name">Ascent</span></span></button>
+            <button type="button" class="map-card" data-map="Bind"><img data-src="Map_Loading/Loading_Screen_Bind.webp" alt="" class="map-image" decoding="async"><span class="map-overlay"><span class="map-name">Bind</span></span></button>
+            <button type="button" class="map-card" data-map="Breeze"><img data-src="Map_Loading/Loading_Screen_Breeze.webp" alt="" class="map-image" decoding="async"><span class="map-overlay"><span class="map-name">Breeze</span></span></button>
+            <button type="button" class="map-card" data-map="Corrode"><img data-src="Map_Loading/Loading_Screen_Corrode.webp" alt="" class="map-image" decoding="async"><span class="map-overlay"><span class="map-name">Corrode</span></span></button>
+            <button type="button" class="map-card" data-map="Fracture"><img data-src="Map_Loading/Loading_Screen_Fracture.webp" alt="" class="map-image" decoding="async"><span class="map-overlay"><span class="map-name">Fracture</span></span></button>
+            <button type="button" class="map-card" data-map="Haven"><img data-src="Map_Loading/Loading_Screen_Haven.webp" alt="" class="map-image" decoding="async"><span class="map-overlay"><span class="map-name">Haven</span></span></button>
+            <button type="button" class="map-card" data-map="Icebox"><img data-src="Map_Loading/Loading_Screen_Icebox.webp" alt="" class="map-image" decoding="async"><span class="map-overlay"><span class="map-name">Icebox</span></span></button>
+            <button type="button" class="map-card" data-map="Lotus"><img data-src="Map_Loading/Loading_Screen_Lotus.webp" alt="" class="map-image" decoding="async"><span class="map-overlay"><span class="map-name">Lotus</span></span></button>
+            <button type="button" class="map-card" data-map="Pearl"><img data-src="Map_Loading/Loading_Screen_Pearl.webp" alt="" class="map-image" decoding="async"><span class="map-overlay"><span class="map-name">Pearl</span></span></button>
+            <button type="button" class="map-card" data-map="Split"><img data-src="Map_Loading/Loading_Screen_Split.webp" alt="" class="map-image" decoding="async"><span class="map-overlay"><span class="map-name">Split</span></span></button>
+            <button type="button" class="map-card" data-map="Summit"><img data-src="Map_Loading/Summit.jpg" alt="" class="map-image" decoding="async"><span class="map-overlay"><span class="map-name">Summit</span></span></button>
+            <button type="button" class="map-card" data-map="Sunset"><img data-src="Map_Loading/Loading_Screen_Sunset.webp" alt="" class="map-image" decoding="async"><span class="map-overlay"><span class="map-name">Sunset</span></span></button>
+          </div>
+        </div>
+
+        <div class="analyze-minimap-view" id="analyzeMinimapView" style="display:none;">
+          <div class="container">
+            <button class="back-button" id="backToAnalyzeList" type="button">Back to Maps</button>
+            <h2 class="analyze-map-title" id="analyzeMapTitle"></h2>
+            <div class="strategy-planner-layout">
+              <aside class="strategy-team-panel strategy-team-panel--blue" id="strategyTeamBluePanel">
+                <h3 class="strategy-team-heading">Blue Team</h3>
+                <div class="strategy-team-slots" id="strategyBlueSlots" data-team="blue"></div>
+              </aside>
+              <div class="strategy-board">
+                <div class="strategy-board-actions">
+                  <button type="button" class="strategy-spike-source" id="strategySpikeSource" title="Drag the Spike onto the map. Drag it off the map to remove." aria-label="Spike. Drag onto the map.">
+                    <img src="Other_images/Spike_nobg.png" alt="" draggable="false">
+                  </button>
+                  <button type="button" class="strategy-tool-btn" id="strategyArrowModeBtn" aria-pressed="false">Arrow</button>
+                  <button type="button" class="strategy-download-btn" id="strategyDownloadBtn">Download Strategy</button>
+                </div>
+                <p class="strategy-help">Drag agents and abilities onto the map. Right-click, or turn on Arrow, to draw a path. Drag a piece off the map to remove it.</p>
+                <div class="minimap-container strategy-minimap" id="strategyExportRoot">
+                  <img src="" alt="" class="minimap-image" id="minimapImage">
+                  <div class="strategy-map-layer" id="strategyMapLayer" aria-hidden="true">
+                    <svg class="strategy-arrow-svg" id="strategyArrowSvg" viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
+                    <div class="strategy-entities-layer" id="strategyEntitiesLayer"></div>
+                  </div>
+                </div>
+              </div>
+              <aside class="strategy-team-panel strategy-team-panel--red" id="strategyTeamRedPanel">
+                <h3 class="strategy-team-heading">Red Team</h3>
+                <div class="strategy-team-slots" id="strategyRedSlots" data-team="red"></div>
+              </aside>
+            </div>
+          </div>
+          <div class="strategy-agent-picker" id="strategyAgentPicker" hidden>
+            <div class="strategy-agent-picker-backdrop" id="strategyAgentPickerBackdrop"></div>
+            <div class="strategy-agent-picker-dialog" role="dialog" aria-labelledby="strategyAgentPickerTitle">
+              <div class="strategy-agent-picker-header">
+                <h4 id="strategyAgentPickerTitle">Select agent</h4>
+                <button type="button" class="strategy-agent-picker-close" id="strategyAgentPickerClose" aria-label="Close">&times;</button>
+              </div>
+              <button type="button" class="strategy-agent-remove-btn" id="strategyAgentRemoveBtn" hidden>Remove agent</button>
+              <div class="strategy-agent-picker-grid" id="strategyAgentPickerGrid"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <nav class="footer-nav" aria-label="Legal">
+        <ul>
+          <li><a href="index.html">Home</a></li>
+          <li><a href="privacy.html">Privacy Policy</a></li>
+          <li><a href="terms.html">Terms of Service</a></li>
+        </ul>
+      </nav>
+      <p class="riot-disclaimer">
+        SpikeCoach isn't endorsed by Riot Games and doesn't reflect the views or opinions of Riot Games or anyone officially involved in producing or managing Riot Games properties. Riot Games, and all associated properties are trademarks or registered trademarks of Riot Games, Inc.
+      </p>
+      <p class="footer-copy">&copy; <span id="year"></span> SpikeCoach. All rights reserved.</p>
+    </div>
+  </footer>
+
+  <script type="module" src="strategy.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>
