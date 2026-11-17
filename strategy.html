@@ -133,17 +133,22 @@
                       <button type="button" class="strategy-zoom-level" id="strategyZoomLevel" aria-label="Reset zoom to 100 percent">100%</button>
                       <button type="button" class="strategy-zoom-btn" id="strategyZoomIn" aria-label="Zoom in">+</button>
                     </div>
+                    <button type="button" class="strategy-flip-btn" id="strategyFlipBtn" aria-pressed="false" title="Flip map" aria-label="Flip map">
+                      <img src="Other_images/flipicon.png" alt="" draggable="false">
+                    </button>
                     <button type="button" class="strategy-tool-btn" id="strategyResetView">Reset View</button>
                     <button type="button" class="strategy-danger-btn" id="strategyDeleteEverything">Delete Everything</button>
                   </div>
                   <div class="strategy-map-frame">
                     <div class="minimap-container strategy-minimap" id="strategyExportRoot">
                       <div class="strategy-map-content" id="strategyMapContent">
-                        <img src="" alt="" class="minimap-image" id="minimapImage" draggable="false">
-                        <div class="strategy-map-layer" id="strategyMapLayer" aria-hidden="true">
-                          <svg class="strategy-arrow-svg" id="strategyArrowSvg" viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
-                          <div class="strategy-entities-layer" id="strategyEntitiesLayer"></div>
-                          <div class="strategy-playback-layer" id="strategyPlaybackLayer" hidden></div>
+                        <div class="strategy-map-flip" id="strategyMapFlip">
+                          <img src="" alt="" class="minimap-image" id="minimapImage" draggable="false">
+                          <div class="strategy-map-layer" id="strategyMapLayer" aria-hidden="true">
+                            <svg class="strategy-arrow-svg" id="strategyArrowSvg" viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
+                            <div class="strategy-entities-layer" id="strategyEntitiesLayer"></div>
+                            <div class="strategy-playback-layer" id="strategyPlaybackLayer" hidden></div>
+                          </div>
                         </div>
                       </div>
                     </div>

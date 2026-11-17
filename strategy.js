@@ -182,7 +182,7 @@ document.addEventListener("spikecoach-auth", function(event) {
       transitionEndsAt: 0
     };
     var ZOOM_LEVELS = [1, 1.25, 1.5, 1.75, 2, 2.25, 2.5];
-    var mapView = { scale: 1, panX: 0, panY: 0 };
+    var mapView = { scale: 1, panX: 0, panY: 0, flipped: false };
     var panDrag = null;
     var deleteReturnFocus = null;
 
@@ -419,6 +419,7 @@ document.addEventListener("spikecoach-auth", function(event) {
       if (!rect.width || !rect.height) return { x: 50, y: 50 };
       var x = ((clientX - rect.left) / rect.width) * 100;
       var y = ((clientY - rect.top) / rect.height) * 100;
+      if (mapView.flipped) x = 100 - x;
       return { x: clampMapPct(x), y: clampMapPct(y) };
     }
 
@@ -1238,10 +1239,18 @@ document.addEventListener("spikecoach-auth", function(event) {
         canvas.width = mapImg.naturalWidth;
         canvas.height = mapImg.naturalHeight;
         var ctx = canvas.getContext('2d');
+        if (mapView.flipped) {
+          ctx.translate(canvas.width, 0);
+          ctx.scale(-1, 1);
+        }
         ctx.drawImage(mapImg, 0, 0, canvas.width, canvas.height);
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
 
         function point(pct) {
-          return { x: (pct.x / 100) * canvas.width, y: (pct.y / 100) * canvas.height };
+          var x = (pct.x / 100) * canvas.width;
+          var y = (pct.y / 100) * canvas.height;
+          if (mapView.flipped) x = canvas.width - x;
+          return { x: x, y: y };
         }
 
         state.arrows.forEach(function(arrow) {
@@ -2322,6 +2331,11 @@ document.addEventListener("spikecoach-auth", function(event) {
         dom.mapContent.style.transform =
           'translate(' + (mapView.panX * 100) + '%, ' + (mapView.panY * 100) + '%) scale(' + mapView.scale + ')';
       }
+      if (dom.mapFlip) dom.mapFlip.classList.toggle('is-flipped', !!mapView.flipped);
+      if (dom.flipBtn) {
+        dom.flipBtn.classList.toggle('is-active', !!mapView.flipped);
+        dom.flipBtn.setAttribute('aria-pressed', mapView.flipped ? 'true' : 'false');
+      }
       if (dom.minimapContainer) dom.minimapContainer.classList.toggle('is-zoomed', mapView.scale > 1);
       if (dom.zoomLevel) {
         var pct = Math.round(mapView.scale * 100);
@@ -2379,6 +2393,12 @@ document.addEventListener("spikecoach-auth", function(event) {
       mapView.scale = 1;
       mapView.panX = 0;
       mapView.panY = 0;
+      mapView.flipped = false;
+      applyMapView();
+    }
+
+    function toggleMapFlip() {
+      mapView.flipped = !mapView.flipped;
       applyMapView();
     }
 
@@ -2487,6 +2507,8 @@ document.addEventListener("spikecoach-auth", function(event) {
 
     function bindMapView() {
       dom.mapContent = document.getElementById('strategyMapContent');
+      dom.mapFlip = document.getElementById('strategyMapFlip');
+      dom.flipBtn = document.getElementById('strategyFlipBtn');
       dom.zoomOut = document.getElementById('strategyZoomOut');
       dom.zoomIn = document.getElementById('strategyZoomIn');
       dom.zoomLevel = document.getElementById('strategyZoomLevel');
@@ -2499,6 +2521,7 @@ document.addEventListener("spikecoach-auth", function(event) {
       if (dom.zoomOut) dom.zoomOut.addEventListener('click', function() { stepZoom(-1); });
       if (dom.zoomIn) dom.zoomIn.addEventListener('click', function() { stepZoom(1); });
       if (dom.zoomLevel) dom.zoomLevel.addEventListener('click', resetMapView);
+      if (dom.flipBtn) dom.flipBtn.addEventListener('click', toggleMapFlip);
       if (dom.resetViewBtn) dom.resetViewBtn.addEventListener('click', resetMapView);
       if (dom.deleteEverythingBtn) dom.deleteEverythingBtn.addEventListener('click', openDeleteDialog);
       if (dom.deleteCancel) dom.deleteCancel.addEventListener('click', closeDeleteDialog);

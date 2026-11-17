@@ -2418,6 +2418,31 @@ a.btn-primary:hover {
   cursor: not-allowed;
 }
 
+.strategy-flip-btn {
+  width: 2.05rem;
+  height: 2.05rem;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-primary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.strategy-flip-btn img {
+  width: 1.05rem;
+  height: 1.05rem;
+  filter: invert(1);
+}
+
+.strategy-flip-btn.is-active {
+  border-color: var(--accent-soft);
+  background: var(--accent-wash);
+}
+
 .strategy-view-bar .strategy-danger-btn {
   margin-left: auto;
 }
@@ -2525,6 +2550,25 @@ a.btn-primary:hover {
   position: relative;
   width: 100%;
   transform-origin: 0 0;
+}
+
+.strategy-map-flip {
+  position: relative;
+  width: 100%;
+  transform-origin: center center;
+}
+
+.strategy-map-flip.is-flipped {
+  transform: scaleX(-1);
+}
+
+.strategy-map-flip.is-flipped .agent-marker img,
+.strategy-map-flip.is-flipped .strategy-ability-map-marker img,
+.strategy-map-flip.is-flipped .strategy-spike-map-marker img,
+.strategy-map-flip.is-flipped .strategy-play-agent img,
+.strategy-map-flip.is-flipped .strategy-play-ability img,
+.strategy-map-flip.is-flipped .strategy-play-spike img {
+  transform: scaleX(-1);
 }
 
 .minimap-image {
