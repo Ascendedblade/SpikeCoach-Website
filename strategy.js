@@ -154,15 +154,20 @@ document.addEventListener("spikecoach-auth", function(event) {
       mapSelection: null,
       arrows: [],
       spike: null,
-      drag: null,
-      arrowMode: false
+      drag: null
     };
     var SPIKE_ICON_SRC = 'Other_images/Spike_nobg.png';
     var SEQUENCE_COUNT = 8;
     var PLAYBACK_CONFIG = {
-      transitionDuration: 1000,
-      pauseDuration: 500
+      transitionDuration: 1500,
+      pauseDuration: 500,
+      minMoveDuration: 600,
+      maxMoveDuration: 2500,
+      moveMsPerUnit: 1800
     };
+    var ARROW_MIN_PCT = 4;
+    var NAV_GRID = 100;
+    var walkabilityCache = {};
     var sequences = [];
     var sequenceTouched = [];
     var activeSequence = 0;
@@ -250,45 +255,74 @@ document.addEventListener("spikecoach-auth", function(event) {
       return prefix + '-' + Math.random().toString(36).slice(2, 10);
     }
 
-    function getAnchorMapPct(anchor) {
-      if (!anchor) return null;
-      var slot = getTeam(anchor.teamId).slots[anchor.slotIndex];
-      if (!slot) return null;
-      if (anchor.type === 'agent' || anchor.type === 'ability-tray') {
-        return slot.mapPos ? { x: slot.mapPos.x, y: slot.mapPos.y } : null;
-      }
-      if (anchor.type === 'ability') {
-        for (var i = 0; i < slot.abilityPlacements.length; i++) {
-          var pl = slot.abilityPlacements[i];
-          if (pl.id === anchor.abilityId) return pl.mapPos ? { x: pl.mapPos.x, y: pl.mapPos.y } : null;
+    function findSlotByInstanceId(instanceId, teams) {
+      if (!instanceId) return null;
+      var source = teams || state.teams;
+      var found = null;
+      TEAM_IDS.forEach(function(teamId) {
+        var team = source && source[teamId];
+        if (!team) return;
+        (team.slots || []).forEach(function(slot) {
+          if (slot.instanceId === instanceId) found = slot;
+        });
+      });
+      return found;
+    }
+
+    function livingAgentIds(teams) {
+      var ids = {};
+      TEAM_IDS.forEach(function(teamId) {
+        var team = teams && teams[teamId];
+        if (!team) return;
+        (team.slots || []).forEach(function(slot) {
+          if (slot.instanceId && slot.agentId && slot.mapPos) ids[slot.instanceId] = teamId;
+        });
+      });
+      return ids;
+    }
+
+    function pruneArrowList(arrows, teams) {
+      var ids = livingAgentIds(teams);
+      return (arrows || []).filter(function(arrow) {
+        var sourceId = arrow.sourceAgentId;
+        if (!sourceId && arrow.anchor && arrow.anchor.type === 'agent') {
+          var team = teams && teams[arrow.anchor.teamId];
+          var anchored = team && team.slots && team.slots[arrow.anchor.slotIndex];
+          if (anchored && anchored.instanceId) {
+            sourceId = anchored.instanceId;
+            arrow.sourceAgentId = sourceId;
+          }
         }
-      }
-      return null;
+        if (!sourceId || !ids[sourceId] || !arrow.endPct) return false;
+        if (!arrow.teamId) arrow.teamId = ids[sourceId];
+        return true;
+      });
+    }
+
+    function agentPercent(instanceId) {
+      var slot = findSlotByInstanceId(instanceId);
+      if (!slot || !slot.mapPos) return null;
+      return { x: slot.mapPos.x, y: slot.mapPos.y };
     }
 
     function resolveArrowStart(arrow) {
-      if (arrow.anchor) {
-        var anchored = getAnchorMapPct(arrow.anchor);
-        if (anchored) return anchored;
+      return agentPercent(arrow && arrow.sourceAgentId);
+    }
+
+    function removeArrowsForAgent(instanceId) {
+      if (!instanceId) return;
+      state.arrows = state.arrows.filter(function(arrow) {
+        return arrow.sourceAgentId !== instanceId;
+      });
+    }
+
+    function removeArrow(id) {
+      state.arrows = state.arrows.filter(function(arrow) { return arrow.id !== id; });
+      if (state.mapSelection && state.mapSelection.type === 'arrow' && state.mapSelection.arrowId === id) {
+        state.mapSelection = null;
       }
-      return arrow.startPct;
-    }
-
-    function removeArrowsForSlot(teamId, slotIndex) {
-      state.arrows = state.arrows.filter(function(arrow) {
-        if (!arrow.anchor) return true;
-        return !(arrow.anchor.teamId === teamId && arrow.anchor.slotIndex === slotIndex);
-      });
-    }
-
-    function removeArrowsForAbility(teamId, slotIndex, abilityId) {
-      state.arrows = state.arrows.filter(function(arrow) {
-        if (!arrow.anchor) return true;
-        if (arrow.anchor.type !== 'ability') return true;
-        return !(arrow.anchor.teamId === teamId &&
-          arrow.anchor.slotIndex === slotIndex &&
-          arrow.anchor.abilityId === abilityId);
-      });
+      noteEdit();
+      syncArrows();
     }
 
     function isInsideMapClient(clientX, clientY) {
@@ -301,9 +335,10 @@ document.addEventListener("spikecoach-auth", function(event) {
       if (playback.running) return;
       var slot = getTeam(teamId).slots[slotIndex];
       if (!slot || !slot.mapPos) return;
+      var removedId = slot.instanceId;
       slot.mapPos = null;
       slot.abilityPlacements = [];
-      removeArrowsForSlot(teamId, slotIndex);
+      removeArrowsForAgent(removedId);
       if (state.mapSelection && state.mapSelection.type === 'agent' &&
           state.mapSelection.teamId === teamId && state.mapSelection.slotIndex === slotIndex) {
         clearMapSelection();
@@ -320,7 +355,7 @@ document.addEventListener("spikecoach-auth", function(event) {
       var slot = getTeam(teamId).slots[slotIndex];
       if (!slot || !slot.abilityPlacements) return;
       slot.abilityPlacements = slot.abilityPlacements.filter(function(p) { return p.id !== abilityId; });
-      removeArrowsForAbility(teamId, slotIndex, abilityId);
+      state.arrows = pruneArrowList(state.arrows, state.teams);
       if (isSameMapSelection(state.mapSelection, 'ability', teamId, slotIndex, abilityId)) {
         state.mapSelection = null;
       }
@@ -334,6 +369,7 @@ document.addEventListener("spikecoach-auth", function(event) {
       if (sel.type === 'agent') removeAgentFromMap(sel.teamId, sel.slotIndex);
       else if (sel.type === 'ability') removeAbilityFromMap(sel.teamId, sel.slotIndex, sel.abilityId);
       else if (sel.type === 'team-slot') clearSlot(sel.teamId, sel.slotIndex);
+      else if (sel.type === 'arrow') removeArrow(sel.arrowId);
     }
 
     function isEditableTarget(el) {
@@ -350,9 +386,9 @@ document.addEventListener("spikecoach-auth", function(event) {
 
     function resetTeams() {
       state.teams = { blue: createEmptyTeamState(), red: createEmptyTeamState() };
-      clearMapSelection();
       state.arrows = [];
       state.spike = null;
+      clearMapSelection();
     }
 
     function clampMapPct(n) {
@@ -553,7 +589,7 @@ document.addEventListener("spikecoach-auth", function(event) {
         var btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'strategy-ability-btn';
-        btn.title = ability.label + ' · drag to map · right-click for arrow';
+        btn.title = ability.label + ' · drag onto the map';
         btn.dataset.abilitySrc = ability.src;
         var img = document.createElement('img');
         img.src = ability.src;
@@ -565,15 +601,6 @@ document.addEventListener("spikecoach-auth", function(event) {
 
         btn.addEventListener('pointerdown', function(e) {
           e.stopPropagation();
-          if ((e.button === 2) || (state.arrowMode && e.button === 0)) {
-            e.preventDefault();
-            startArrowDraft(e, {
-              type: 'ability-tray',
-              teamId: teamId,
-              slotIndex: slotIndex
-            }, teamId);
-            return;
-          }
           if (e.button !== 0) return;
           startAbilityTrayDrag(e, teamId, slotIndex, ability, btn);
         });
@@ -592,7 +619,7 @@ document.addEventListener("spikecoach-auth", function(event) {
       el.style.left = placement.mapPos.x + '%';
       el.style.top = placement.mapPos.y + '%';
       el.dataset.abilityId = placement.id;
-      el.title = placement.label + ' · drag to move · right-click for arrow';
+      el.title = placement.label + ' · drag to move · drag off the map to remove';
 
       var img = document.createElement('img');
       img.src = placement.src;
@@ -602,16 +629,6 @@ document.addEventListener("spikecoach-auth", function(event) {
 
       el.addEventListener('pointerdown', function(e) {
         e.stopPropagation();
-        if ((e.button === 2) || (state.arrowMode && e.button === 0)) {
-          e.preventDefault();
-          startArrowDraft(e, {
-            type: 'ability',
-            teamId: teamId,
-            slotIndex: slotIndex,
-            abilityId: placement.id
-          }, teamId);
-          return;
-        }
         if (e.button !== 0) return;
         startAbilityMapDrag(e, teamId, slotIndex, placement.id, el);
       });
@@ -639,15 +656,12 @@ document.addEventListener("spikecoach-auth", function(event) {
       img.draggable = false;
       el.appendChild(img);
 
+      el.title = 'Right-click and drag to draw an arrow.';
       el.addEventListener('pointerdown', function(e) {
         e.stopPropagation();
-        if ((e.button === 2) || (state.arrowMode && e.button === 0)) {
+        if (e.button === 2) {
           e.preventDefault();
-          startArrowDraft(e, {
-            type: 'agent',
-            teamId: teamId,
-            slotIndex: slotIndex
-          }, teamId);
+          startArrowDraft(e, slot.instanceId, teamId);
           return;
         }
         if (e.button !== 0) return;
@@ -684,6 +698,7 @@ document.addEventListener("spikecoach-auth", function(event) {
 
     function syncArrows() {
       if (!dom.arrowSvg) return;
+      state.arrows = pruneArrowList(state.arrows, state.teams);
       dom.arrowSvg.querySelectorAll('.strategy-arrow-shape').forEach(function(n) { n.remove(); });
       ensureArrowDefs();
 
@@ -718,15 +733,34 @@ document.addEventListener("spikecoach-auth", function(event) {
         endCap.setAttribute('r', '1.4');
         endCap.setAttribute('fill', color);
 
+        function selectArrow() {
+          state.mapSelection = { type: 'arrow', arrowId: arrow.id };
+        }
         hit.addEventListener('pointerdown', function(e) {
-          if (e.button !== 0) return;
           e.stopPropagation();
-          startArrowMove(e, arrow.id);
+          if (e.button === 2) {
+            e.preventDefault();
+            removeArrow(arrow.id);
+            return;
+          }
+          if (e.button !== 0) return;
+          selectArrow();
+          startArrowEndDrag(e, arrow.id);
         });
         endCap.addEventListener('pointerdown', function(e) {
-          if (e.button !== 0) return;
           e.stopPropagation();
+          if (e.button === 2) {
+            e.preventDefault();
+            removeArrow(arrow.id);
+            return;
+          }
+          if (e.button !== 0) return;
+          selectArrow();
           startArrowEndDrag(e, arrow.id);
+        });
+        g.addEventListener('contextmenu', function(e) {
+          e.preventDefault();
+          e.stopPropagation();
         });
 
         g.appendChild(hit);
@@ -739,6 +773,7 @@ document.addEventListener("spikecoach-auth", function(event) {
     function setSlotAgent(teamId, slotIndex, agentId) {
       if (playback.running) return;
       var slot = getTeam(teamId).slots[slotIndex];
+      removeArrowsForAgent(slot.instanceId);
       slot.instanceId = genMapItemId('agent');
       slot.agentId = agentId;
       slot.mapPos = null;
@@ -754,7 +789,7 @@ document.addEventListener("spikecoach-auth", function(event) {
           (state.mapSelection && state.mapSelection.teamId === teamId && state.mapSelection.slotIndex === slotIndex)) {
         clearMapSelection();
       }
-      removeArrowsForSlot(teamId, slotIndex);
+      removeArrowsForAgent(getTeam(teamId).slots[slotIndex].instanceId);
       getTeam(teamId).slots[slotIndex] = createEmptySlot();
       noteEdit();
       closeAgentPicker();
@@ -774,13 +809,6 @@ document.addEventListener("spikecoach-auth", function(event) {
         if (slot.abilityPlacements[i].id === abilityId) return slot.abilityPlacements[i];
       }
       return null;
-    }
-
-    function detachArrowIfAnchored(arrow) {
-      if (!arrow.anchor) return;
-      var start = resolveArrowStart(arrow);
-      arrow.startPct = { x: start.x, y: start.y };
-      arrow.anchor = null;
     }
 
     function openAgentPicker(teamId, slotIndex) {
@@ -876,34 +904,25 @@ document.addEventListener("spikecoach-auth", function(event) {
         }
       }
       if (d.mode === 'arrow-draft') {
+        var origin = agentPercent(d.sourceAgentId) || d.startPct;
         d.endPct = clientToMapPercent(e.clientX, e.clientY);
-        if (d.previewLine) {
+        if (d.previewLine && origin) {
+          d.previewLine.setAttribute('x1', origin.x);
+          d.previewLine.setAttribute('y1', origin.y);
           d.previewLine.setAttribute('x2', d.endPct.x);
           d.previewLine.setAttribute('y2', d.endPct.y);
         }
       }
-      if (d.mode === 'arrow-move' || d.mode === 'arrow-end') {
+      if (d.mode === 'arrow-end') {
         var arrow = state.arrows.find(function(a) { return a.id === d.arrowId; });
         if (!arrow) return;
         var cur = clientToMapPercent(e.clientX, e.clientY);
         if (!d.lastPct) d.lastPct = cur;
         var delta = { x: cur.x - d.lastPct.x, y: cur.y - d.lastPct.y };
         d.lastPct = cur;
-        if (d.mode === 'arrow-end') {
-          if (!arrow.endPct) arrow.endPct = { x: cur.x, y: cur.y };
-          arrow.endPct.x = clampMapPct(arrow.endPct.x + delta.x);
-          arrow.endPct.y = clampMapPct(arrow.endPct.y + delta.y);
-        } else {
-          if (!arrow.startPct) {
-            var s = resolveArrowStart(arrow);
-            arrow.startPct = { x: s.x, y: s.y };
-          }
-          if (!arrow.endPct) return;
-          arrow.startPct.x = clampMapPct(arrow.startPct.x + delta.x);
-          arrow.startPct.y = clampMapPct(arrow.startPct.y + delta.y);
-          arrow.endPct.x = clampMapPct(arrow.endPct.x + delta.x);
-          arrow.endPct.y = clampMapPct(arrow.endPct.y + delta.y);
-        }
+        if (!arrow.endPct) arrow.endPct = { x: cur.x, y: cur.y };
+        arrow.endPct.x = clampMapPct(arrow.endPct.x + delta.x);
+        arrow.endPct.y = clampMapPct(arrow.endPct.y + delta.y);
         syncArrows();
       }
     }
@@ -973,14 +992,16 @@ document.addEventListener("spikecoach-auth", function(event) {
         }
       }
       if (d.mode === 'arrow-draft') {
-        if (d.moved && d.endPct && d.startPct) {
+        var origin = agentPercent(d.sourceAgentId) || d.startPct;
+        var end = d.endPct;
+        if (origin && end && Math.hypot(end.x - origin.x, end.y - origin.y) >= ARROW_MIN_PCT) {
           state.arrows.push({
             id: genMapItemId('arr'),
+            sourceAgentId: d.sourceAgentId,
             teamId: d.teamId,
-            anchor: d.anchor,
-            startPct: { x: d.startPct.x, y: d.startPct.y },
-            endPct: { x: d.endPct.x, y: d.endPct.y }
+            endPct: { x: end.x, y: end.y }
           });
+          d.saved = true;
         }
       }
       if (sequenceDragChanged(d, e)) noteEdit();
@@ -1087,9 +1108,9 @@ document.addEventListener("spikecoach-auth", function(event) {
       document.addEventListener('pointercancel', onDragEnd);
     }
 
-    function startArrowDraft(e, anchor, teamId) {
-      if (playback.running) return;
-      var start = getAnchorMapPct(anchor);
+    function startArrowDraft(e, sourceAgentId, teamId) {
+      if (playback.running || !sourceAgentId) return;
+      var start = agentPercent(sourceAgentId);
       if (!start) return;
 
       ensureArrowDefs();
@@ -1106,31 +1127,14 @@ document.addEventListener("spikecoach-auth", function(event) {
       state.drag = {
         mode: 'arrow-draft',
         teamId: teamId,
-        anchor: anchor,
+        sourceAgentId: sourceAgentId,
         startPct: { x: start.x, y: start.y },
         endPct: { x: start.x, y: start.y },
         previewLine: preview,
         startX: e.clientX,
         startY: e.clientY,
-        moved: false
-      };
-      document.addEventListener('pointermove', onDragMove);
-      document.addEventListener('pointerup', onDragEnd);
-      document.addEventListener('pointercancel', onDragEnd);
-    }
-
-    function startArrowMove(e, arrowId) {
-      if (playback.running) return;
-      var arrow = state.arrows.find(function(a) { return a.id === arrowId; });
-      if (!arrow) return;
-      detachArrowIfAnchored(arrow);
-      state.drag = {
-        mode: 'arrow-move',
-        arrowId: arrowId,
-        startX: e.clientX,
-        startY: e.clientY,
-        lastPct: clientToMapPercent(e.clientX, e.clientY),
-        moved: false
+        moved: false,
+        saved: false
       };
       document.addEventListener('pointermove', onDragMove);
       document.addEventListener('pointerup', onDragEnd);
@@ -1141,7 +1145,6 @@ document.addEventListener("spikecoach-auth", function(event) {
       if (playback.running) return;
       var arrow = state.arrows.find(function(a) { return a.id === arrowId; });
       if (!arrow) return;
-      detachArrowIfAnchored(arrow);
       state.drag = {
         mode: 'arrow-end',
         arrowId: arrowId,
@@ -1441,9 +1444,10 @@ document.addEventListener("spikecoach-auth", function(event) {
 
     function sequenceDragChanged(d, e) {
       if (!d || !d.moved) return false;
+      if (d.mode === 'arrow-draft') return !!d.saved;
       if (d.mode === 'ability-tray' || d.mode === 'spike-tray') return isInsideMapClient(e.clientX, e.clientY);
       return d.mode === 'slot' || d.mode === 'marker' || d.mode === 'ability-map' ||
-        d.mode === 'spike-map' || d.mode === 'arrow-draft' || d.mode === 'arrow-move' || d.mode === 'arrow-end';
+        d.mode === 'spike-map' || d.mode === 'arrow-end';
     }
 
     function snapshotEditor() {
@@ -1461,6 +1465,7 @@ document.addEventListener("spikecoach-auth", function(event) {
 
     function loadSequence(index) {
       var seq = sequences[index] || emptySequence();
+      seq.arrows = pruneArrowList(seq.arrows, seq.teams);
       state.teams = convertTeams(seq.teams, false);
       state.arrows = convertArrows(seq.arrows, false);
       state.spike = convertSpike(seq.spike, false);
@@ -1539,6 +1544,8 @@ document.addEventListener("spikecoach-auth", function(event) {
       playback.token += 1;
       clearPlaybackTimer();
       clearFadeTimer();
+      if (playback.motion && playback.motion.raf) cancelAnimationFrame(playback.motion.raf);
+      playback.motion = null;
       playback.running = false;
       playback.paused = false;
       playback.playable = [];
@@ -1597,6 +1604,226 @@ document.addEventListener("spikecoach-auth", function(event) {
       return [{ id: 'spike', x: seq.spike.mapPos.x, y: seq.spike.mapPos.y }];
     }
 
+    function ensureWalkMask(mapName, img) {
+      if (!mapName || !img || !img.naturalWidth) return null;
+      if (walkabilityCache[mapName]) return walkabilityCache[mapName];
+      var canvas = document.createElement('canvas');
+      canvas.width = NAV_GRID;
+      canvas.height = NAV_GRID;
+      var ctx = canvas.getContext('2d', { willReadFrequently: true });
+      ctx.clearRect(0, 0, NAV_GRID, NAV_GRID);
+      ctx.drawImage(img, 0, 0, NAV_GRID, NAV_GRID);
+      var data = ctx.getImageData(0, 0, NAV_GRID, NAV_GRID).data;
+      function at(x, y) {
+        var i = (y * NAV_GRID + x) * 4;
+        return [data[i], data[i + 1], data[i + 2], data[i + 3]];
+      }
+      var corners = [at(0, 0), at(NAV_GRID - 1, 0), at(0, NAV_GRID - 1), at(NAV_GRID - 1, NAV_GRID - 1)];
+      var bg = [0, 0, 0];
+      corners.forEach(function(px) {
+        bg[0] += px[0];
+        bg[1] += px[1];
+        bg[2] += px[2];
+      });
+      bg[0] /= 4;
+      bg[1] /= 4;
+      bg[2] /= 4;
+      var grid = new Uint8Array(NAV_GRID * NAV_GRID);
+      for (var p = 0; p < grid.length; p++) {
+        var o = p * 4;
+        var alpha = data[o + 3];
+        var diff = Math.abs(data[o] - bg[0]) + Math.abs(data[o + 1] - bg[1]) + Math.abs(data[o + 2] - bg[2]);
+        grid[p] = (alpha > 28 && diff > 48) ? 1 : 0;
+      }
+      walkabilityCache[mapName] = grid;
+      return grid;
+    }
+
+    function cellWalkable(grid, x, y) {
+      if (x < 0 || y < 0 || x >= NAV_GRID || y >= NAV_GRID) return false;
+      return grid[y * NAV_GRID + x] === 1;
+    }
+
+    function toNavCell(point) {
+      var x = Math.round(point.x * (NAV_GRID - 1));
+      var y = Math.round(point.y * (NAV_GRID - 1));
+      if (x < 0) x = 0;
+      if (y < 0) y = 0;
+      if (x >= NAV_GRID) x = NAV_GRID - 1;
+      if (y >= NAV_GRID) y = NAV_GRID - 1;
+      return { x: x, y: y };
+    }
+
+    function nearestWalkable(grid, cell) {
+      if (cellWalkable(grid, cell.x, cell.y)) return cell;
+      for (var radius = 1; radius <= 8; radius++) {
+        for (var dy = -radius; dy <= radius; dy++) {
+          for (var dx = -radius; dx <= radius; dx++) {
+            if (Math.max(Math.abs(dx), Math.abs(dy)) !== radius) continue;
+            if (cellWalkable(grid, cell.x + dx, cell.y + dy)) return { x: cell.x + dx, y: cell.y + dy };
+          }
+        }
+      }
+      return null;
+    }
+
+    function reconstructPath(came, current) {
+      var cells = [];
+      while (current >= 0) {
+        cells.push({ x: current % NAV_GRID, y: (current / NAV_GRID) | 0 });
+        current = came[current];
+      }
+      cells.reverse();
+      return cells;
+    }
+
+    function findGridPath(grid, start, goal) {
+      var count = NAV_GRID * NAV_GRID;
+      var startI = start.y * NAV_GRID + start.x;
+      var goalI = goal.y * NAV_GRID + goal.x;
+      var open = [startI];
+      var inOpen = new Uint8Array(count);
+      inOpen[startI] = 1;
+      var gScore = new Float32Array(count);
+      var fScore = new Float32Array(count);
+      var came = new Int32Array(count);
+      for (var i = 0; i < count; i++) {
+        gScore[i] = Infinity;
+        fScore[i] = Infinity;
+        came[i] = -1;
+      }
+      gScore[startI] = 0;
+      fScore[startI] = Math.hypot(start.x - goal.x, start.y - goal.y);
+      var dirs = [
+        [1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1],
+        [1, 1, 1.41421356237], [1, -1, 1.41421356237], [-1, 1, 1.41421356237], [-1, -1, 1.41421356237]
+      ];
+      while (open.length) {
+        var best = 0;
+        for (var n = 1; n < open.length; n++) if (fScore[open[n]] < fScore[open[best]]) best = n;
+        var current = open[best];
+        open.splice(best, 1);
+        inOpen[current] = 0;
+        if (current === goalI) return reconstructPath(came, current);
+        var cx = current % NAV_GRID;
+        var cy = (current / NAV_GRID) | 0;
+        for (var d = 0; d < dirs.length; d++) {
+          var nx = cx + dirs[d][0];
+          var ny = cy + dirs[d][1];
+          if (!cellWalkable(grid, nx, ny)) continue;
+          if (dirs[d][0] !== 0 && dirs[d][1] !== 0) {
+            if (!cellWalkable(grid, cx + dirs[d][0], cy) || !cellWalkable(grid, cx, cy + dirs[d][1])) continue;
+          }
+          var next = ny * NAV_GRID + nx;
+          var tentative = gScore[current] + dirs[d][2];
+          if (tentative >= gScore[next]) continue;
+          came[next] = current;
+          gScore[next] = tentative;
+          fScore[next] = tentative + Math.hypot(nx - goal.x, ny - goal.y);
+          if (!inOpen[next]) {
+            open.push(next);
+            inOpen[next] = 1;
+          }
+        }
+      }
+      return null;
+    }
+
+    function segmentClear(grid, a, b) {
+      var steps = Math.max(Math.abs(b.x - a.x), Math.abs(b.y - a.y));
+      if (!steps) return cellWalkable(grid, a.x, a.y);
+      var prevX = a.x;
+      var prevY = a.y;
+      for (var i = 1; i <= steps; i++) {
+        var x = Math.round(a.x + (b.x - a.x) * (i / steps));
+        var y = Math.round(a.y + (b.y - a.y) * (i / steps));
+        if (!cellWalkable(grid, x, y)) return false;
+        if (x !== prevX && y !== prevY) {
+          if (!cellWalkable(grid, prevX, y) || !cellWalkable(grid, x, prevY)) return false;
+        }
+        prevX = x;
+        prevY = y;
+      }
+      return true;
+    }
+
+    function smoothPath(grid, cells) {
+      if (cells.length < 3) return cells;
+      var out = [cells[0]];
+      var index = 0;
+      while (index < cells.length - 1) {
+        var furthest = index + 1;
+        for (var j = cells.length - 1; j > index + 1; j--) {
+          if (segmentClear(grid, cells[index], cells[j])) {
+            furthest = j;
+            break;
+          }
+        }
+        out.push(cells[furthest]);
+        index = furthest;
+      }
+      return out;
+    }
+
+    function routeBetween(start, end) {
+      var straight = [{ x: start.x, y: start.y }, { x: end.x, y: end.y }];
+      var grid = state.mapName ? walkabilityCache[state.mapName] : null;
+      if (!grid) return straight;
+      var startCell = nearestWalkable(grid, toNavCell(start));
+      var endCell = nearestWalkable(grid, toNavCell(end));
+      if (!startCell || !endCell) {
+        console.warn('Strategy route unavailable; using a straight line.');
+        return straight;
+      }
+      if (startCell.x === endCell.x && startCell.y === endCell.y) return straight;
+      var cells = findGridPath(grid, startCell, endCell);
+      if (!cells || !cells.length) {
+        console.warn('Strategy route unavailable; using a straight line.');
+        return straight;
+      }
+      cells = smoothPath(grid, cells);
+      var points = cells.map(function(cell) {
+        return { x: (cell.x + 0.5) / NAV_GRID, y: (cell.y + 0.5) / NAV_GRID };
+      });
+      points[0] = { x: start.x, y: start.y };
+      points[points.length - 1] = { x: end.x, y: end.y };
+      return points;
+    }
+
+    function routeLength(points) {
+      var length = 0;
+      for (var i = 1; i < points.length; i++) {
+        length += Math.hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y);
+      }
+      return length;
+    }
+
+    function pointAlongRoute(points, distance) {
+      if (!points.length) return { x: 0, y: 0 };
+      if (distance <= 0) return points[0];
+      var remain = distance;
+      for (var i = 1; i < points.length; i++) {
+        var seg = Math.hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y);
+        if (remain <= seg || i === points.length - 1) {
+          var t = seg === 0 ? 0 : Math.min(1, remain / seg);
+          return {
+            x: points[i - 1].x + (points[i].x - points[i - 1].x) * t,
+            y: points[i - 1].y + (points[i].y - points[i - 1].y) * t
+          };
+        }
+        remain -= seg;
+      }
+      return points[points.length - 1];
+    }
+
+    function moveDuration(length) {
+      if (length < 0.01) return 0;
+      var ms = length * PLAYBACK_CONFIG.moveMsPerUnit;
+      if (ms < PLAYBACK_CONFIG.minMoveDuration) return PLAYBACK_CONFIG.minMoveDuration;
+      if (ms > PLAYBACK_CONFIG.maxMoveDuration) return PLAYBACK_CONFIG.maxMoveDuration;
+      return ms;
+    }
+
     function placePlayMarker(el, x, y, animate) {
       if (animate) el.classList.remove('is-instant');
       else el.classList.add('is-instant');
@@ -1641,7 +1868,7 @@ document.addEventListener("spikecoach-auth", function(event) {
       return dom.playbackLayer.querySelector('[data-kind="' + kind + '"][data-play-id="' + id + '"]');
     }
 
-    function syncPlayMarkers(kind, fromMap, toMap, animate, build) {
+    function syncPlayMarkers(kind, fromMap, toMap, animate, build, holdPosition) {
       var removals = [];
       Object.keys(toMap).forEach(function(id) {
         var next = toMap[id];
@@ -1656,11 +1883,14 @@ document.addEventListener("spikecoach-auth", function(event) {
           el.firstChild.src = agentIconSrc(next.character);
           el.className = 'strategy-play-marker strategy-play-agent team-' + next.teamId;
         }
-        if (prev && animate) {
+        if (prev && animate && !holdPosition) {
           placePlayMarker(el, prev.x, prev.y, false);
           el.style.opacity = '1';
           void el.offsetWidth;
           placePlayMarker(el, next.x, next.y, true);
+          el.style.opacity = '1';
+        } else if (prev && animate && holdPosition) {
+          placePlayMarker(el, prev.x, prev.y, false);
           el.style.opacity = '1';
         } else if (!prev && animate) {
           placePlayMarker(el, next.x, next.y, false);
@@ -1693,13 +1923,163 @@ document.addEventListener("spikecoach-auth", function(event) {
       return removals;
     }
 
+    function collectRouteArrows(seq) {
+      var list = [];
+      if (!seq) return list;
+      var ids = livingAgentIds(seq.teams);
+      var agents = indexById(collectAgents(seq));
+      (seq.arrows || []).forEach(function(arrow) {
+        var source = arrow.sourceAgentId;
+        if (!source || !ids[source] || !arrow.endPct || !agents[source]) return;
+        list.push({
+          id: arrow.id,
+          sourceAgentId: source,
+          teamId: arrow.teamId || ids[source],
+          x: agents[source].x,
+          y: agents[source].y,
+          endX: arrow.endPct.x,
+          endY: arrow.endPct.y
+        });
+      });
+      return list;
+    }
+
+    function playbackArrowNode(id) {
+      return dom.playbackLayer.querySelector('[data-play-arrow="' + id + '"]');
+    }
+
+    function ensurePlaybackArrowSvg() {
+      var svg = dom.playbackLayer.querySelector('.strategy-playback-arrows');
+      if (svg) return svg;
+      svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('class', 'strategy-playback-arrows');
+      svg.setAttribute('viewBox', '0 0 100 100');
+      svg.setAttribute('preserveAspectRatio', 'none');
+      dom.playbackLayer.insertBefore(svg, dom.playbackLayer.firstChild);
+      return svg;
+    }
+
     function renderPlaybackFrame(toIndex, fromIndex, animate) {
       var fromSeq = fromIndex === null || fromIndex === undefined ? null : sequences[fromIndex];
       var toSeq = sequences[toIndex];
+      var fromAgents = indexById(collectAgents(fromSeq));
+      var toAgents = indexById(collectAgents(toSeq));
+      var motions = [];
+      var duration = 0;
+      if (animate) {
+        Object.keys(toAgents).forEach(function(id) {
+          if (!fromAgents[id]) return;
+          var path = routeBetween(fromAgents[id], toAgents[id]);
+          var length = routeLength(path);
+          var moveTime = moveDuration(length);
+          motions.push({ id: id, path: path, length: length, duration: moveTime });
+          if (moveTime > duration) duration = moveTime;
+        });
+        var fromIds = {};
+        var toIds = {};
+        Object.keys(fromAgents).forEach(function(id) { fromIds[id] = true; });
+        Object.keys(toAgents).forEach(function(id) { toIds[id] = true; });
+        collectAbilities(fromSeq).forEach(function(item) { fromIds[item.id] = true; });
+        collectAbilities(toSeq).forEach(function(item) { toIds[item.id] = true; });
+        if (!duration) {
+          var faded = false;
+          Object.keys(fromAgents).forEach(function(id) { if (!toAgents[id]) faded = true; });
+          Object.keys(toAgents).forEach(function(id) { if (!fromAgents[id]) faded = true; });
+          var fromArrowIds = {};
+          var toArrowIds = {};
+          collectRouteArrows(fromSeq).forEach(function(arrow) { fromArrowIds[arrow.id] = true; });
+          collectRouteArrows(toSeq).forEach(function(arrow) { toArrowIds[arrow.id] = true; });
+          Object.keys(fromArrowIds).forEach(function(id) { if (!toArrowIds[id]) faded = true; });
+          Object.keys(toArrowIds).forEach(function(id) { if (!fromArrowIds[id]) faded = true; });
+          if (faded) duration = PLAYBACK_CONFIG.transitionDuration;
+        }
+      }
+      if (dom.playbackLayer) {
+        dom.playbackLayer.style.setProperty('--strategy-move', (duration || PLAYBACK_CONFIG.transitionDuration) + 'ms');
+      }
       var removals = [];
-      removals = removals.concat(syncPlayMarkers('agent', indexById(collectAgents(fromSeq)), indexById(collectAgents(toSeq)), animate, buildPlayAgent));
+      removals = removals.concat(syncPlayMarkers('agent', fromAgents, toAgents, animate, buildPlayAgent, true));
       removals = removals.concat(syncPlayMarkers('ability', indexById(collectAbilities(fromSeq)), indexById(collectAbilities(toSeq)), animate, buildPlayAbility));
       removals = removals.concat(syncPlayMarkers('spike', indexById(collectSpike(fromSeq)), indexById(collectSpike(toSeq)), animate, buildPlaySpike));
+      motions.forEach(function(motion) {
+        motion.el = markerNode('agent', motion.id);
+      });
+      ensureArrowDefs();
+      var arrowSvg = ensurePlaybackArrowSvg();
+      var fromArrows = indexById(collectRouteArrows(fromSeq));
+      var toArrows = indexById(collectRouteArrows(toSeq));
+      var arrowAnims = [];
+      Object.keys(toArrows).forEach(function(id) {
+        var next = toArrows[id];
+        var prev = fromArrows[id];
+        var line = playbackArrowNode(id);
+        if (!line) {
+          line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+          line.setAttribute('data-play-arrow', id);
+          line.setAttribute('class', 'strategy-arrow-line');
+          line.setAttribute('stroke', next.teamId === 'blue' ? '#5dade2' : '#ec7063');
+          line.setAttribute('marker-end', 'url(#strategyArrowHead)');
+          line.style.transition = 'opacity var(--strategy-move, 1500ms) linear';
+          arrowSvg.appendChild(line);
+        }
+        var fromEnd = prev ? { x: prev.endX, y: prev.endY } : { x: next.endX, y: next.endY };
+        var toEnd = { x: next.endX, y: next.endY };
+        arrowAnims.push({
+          el: line,
+          sourceAgentId: next.sourceAgentId,
+          fromEnd: fromEnd,
+          toEnd: toEnd,
+          fromPos: prev ? { x: prev.x, y: prev.y } : null,
+          toPos: { x: next.x, y: next.y }
+        });
+        if (!prev && animate) line.style.opacity = '0';
+        else line.style.opacity = '1';
+      });
+      Object.keys(fromArrows).forEach(function(id) {
+        if (toArrows[id]) return;
+        var prev = fromArrows[id];
+        var line = playbackArrowNode(id);
+        if (!line) {
+          line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+          line.setAttribute('data-play-arrow', id);
+          line.setAttribute('class', 'strategy-arrow-line');
+          line.setAttribute('stroke', prev.teamId === 'blue' ? '#5dade2' : '#ec7063');
+          line.style.transition = 'opacity var(--strategy-move, 1500ms) linear';
+          arrowSvg.appendChild(line);
+        }
+        arrowAnims.push({
+          el: line,
+          sourceAgentId: prev.sourceAgentId,
+          fromEnd: { x: prev.endX, y: prev.endY },
+          toEnd: { x: prev.endX, y: prev.endY },
+          fromPos: { x: prev.x, y: prev.y },
+          toPos: null,
+          remove: true
+        });
+        if (animate) {
+          line.style.opacity = '1';
+          removals.push(line);
+        } else if (line.parentNode) {
+          line.parentNode.removeChild(line);
+        }
+      });
+      if (playback.motion && playback.motion.raf) cancelAnimationFrame(playback.motion.raf);
+      playback.motion = {
+        raf: 0,
+        startTime: Date.now(),
+        duration: duration,
+        agents: motions,
+        arrows: arrowAnims
+      };
+      applyPlaybackMotion(animate ? 0 : 1);
+      if (animate && duration) {
+        void dom.playbackLayer.offsetWidth;
+        arrowAnims.forEach(function(arrow) {
+          if (!fromArrows[arrow.el.getAttribute('data-play-arrow')]) arrow.el.style.opacity = '1';
+          if (arrow.remove) arrow.el.style.opacity = '0';
+        });
+        playback.motion.raf = requestAnimationFrame(stepPlaybackMotion);
+      }
       clearFadeTimer();
       if (removals.length) {
         var token = playback.token;
@@ -1708,8 +2088,70 @@ document.addEventListener("spikecoach-auth", function(event) {
           removals.forEach(function(el) {
             if (el.parentNode) el.parentNode.removeChild(el);
           });
-        }, PLAYBACK_CONFIG.transitionDuration);
+        }, duration || PLAYBACK_CONFIG.transitionDuration);
       }
+      return duration;
+    }
+
+    function agentPlaybackPoint(id, t) {
+      var motion = playback.motion;
+      if (!motion) return null;
+      for (var i = 0; i < motion.agents.length; i++) {
+        var agent = motion.agents[i];
+        if (agent.id !== id) continue;
+        var distance = agent.duration ? agent.length * Math.min(1, t * (motion.duration / agent.duration)) : agent.length;
+        if (!agent.duration) distance = agent.length;
+        return pointAlongRoute(agent.path, distance);
+      }
+      return null;
+    }
+
+    function applyPlaybackMotion(t) {
+      var motion = playback.motion;
+      if (!motion) return;
+      if (t < 0) t = 0;
+      if (t > 1) t = 1;
+      motion.agents.forEach(function(agent) {
+        if (!agent.el) return;
+        var distance = agent.length;
+        if (agent.duration && motion.duration) {
+          var local = Math.min(1, (t * motion.duration) / agent.duration);
+          distance = agent.length * local;
+        }
+        var point = pointAlongRoute(agent.path, distance);
+        placePlayMarker(agent.el, point.x, point.y, false);
+      });
+      motion.arrows.forEach(function(arrow) {
+        var origin = agentPlaybackPoint(arrow.sourceAgentId, t);
+        if (!origin) {
+          if (arrow.fromPos && arrow.toPos) {
+            origin = {
+              x: arrow.fromPos.x + (arrow.toPos.x - arrow.fromPos.x) * t,
+              y: arrow.fromPos.y + (arrow.toPos.y - arrow.fromPos.y) * t
+            };
+          } else {
+            origin = arrow.toPos || arrow.fromPos;
+          }
+        }
+        if (!origin) return;
+        var end = {
+          x: arrow.fromEnd.x + (arrow.toEnd.x - arrow.fromEnd.x) * t,
+          y: arrow.fromEnd.y + (arrow.toEnd.y - arrow.fromEnd.y) * t
+        };
+        arrow.el.setAttribute('x1', origin.x * 100);
+        arrow.el.setAttribute('y1', origin.y * 100);
+        arrow.el.setAttribute('x2', end.x * 100);
+        arrow.el.setAttribute('y2', end.y * 100);
+      });
+    }
+
+    function stepPlaybackMotion() {
+      var motion = playback.motion;
+      if (!motion || !playback.running || playback.paused) return;
+      var t = motion.duration ? (Date.now() - motion.startTime) / motion.duration : 1;
+      applyPlaybackMotion(t);
+      if (t < 1) motion.raf = requestAnimationFrame(stepPlaybackMotion);
+      else motion.raf = 0;
     }
 
     function shownSequenceIndex() {
@@ -1733,19 +2175,26 @@ document.addEventListener("spikecoach-auth", function(event) {
       var fromIndex = playback.playable[playback.step];
       playback.step += 1;
       var toIndex = playback.playable[playback.step];
-      renderPlaybackFrame(toIndex, fromIndex, true);
-      playback.transitionEndsAt = Date.now() + PLAYBACK_CONFIG.transitionDuration;
+      var duration = renderPlaybackFrame(toIndex, fromIndex, true);
+      playback.transitionEndsAt = Date.now() + duration;
       updateTimelineUI();
       playback.timer = window.setTimeout(function() {
         advancePlayback(token);
-      }, PLAYBACK_CONFIG.transitionDuration + PLAYBACK_CONFIG.pauseDuration);
+      }, duration + PLAYBACK_CONFIG.pauseDuration);
     }
 
     function startPlayback() {
       if (playback.running && playback.paused) {
+        var held = playback.pausedAt ? Date.now() - playback.pausedAt : 0;
+        playback.transitionEndsAt += held;
+        if (playback.motion) playback.motion.startTime += held;
         playback.paused = false;
+        playback.pausedAt = 0;
         var token = playback.token;
-        var wait = Math.max(0, playback.transitionEndsAt - Date.now());
+        if (playback.motion && playback.motion.duration && Date.now() < playback.motion.startTime + playback.motion.duration) {
+          playback.motion.raf = requestAnimationFrame(stepPlaybackMotion);
+        }
+        var wait = Math.max(0, playback.transitionEndsAt + PLAYBACK_CONFIG.pauseDuration - Date.now());
         clearPlaybackTimer();
         playback.timer = window.setTimeout(function() {
           advancePlayback(token);
@@ -1757,6 +2206,7 @@ document.addEventListener("spikecoach-auth", function(event) {
       var list = playableIndices();
       if (!list.length) return;
       var startAt = list.indexOf(activeSequence);
+      if (activeSequence === 1 || activeSequence === 2) startAt = list.indexOf(0);
       if (startAt < 0) startAt = 0;
       playback.running = true;
       playback.paused = false;
@@ -1781,15 +2231,12 @@ document.addEventListener("spikecoach-auth", function(event) {
     function pausePlayback() {
       if (!playback.running || playback.paused) return;
       playback.paused = true;
+      playback.pausedAt = Date.now();
       clearPlaybackTimer();
-      updateTimelineUI();
-    }
-
-    function restartPlayback() {
-      haltPlayback();
-      saveActiveSequence();
-      activeSequence = 0;
-      loadSequence(0);
+      if (playback.motion && playback.motion.raf) {
+        cancelAnimationFrame(playback.motion.raf);
+        playback.motion.raf = 0;
+      }
       updateTimelineUI();
     }
 
@@ -1827,7 +2274,6 @@ document.addEventListener("spikecoach-auth", function(event) {
       if (dom.duplicateBtn) dom.duplicateBtn.addEventListener('click', duplicatePrevious);
       if (dom.playBtn) dom.playBtn.addEventListener('click', startPlayback);
       if (dom.pauseBtn) dom.pauseBtn.addEventListener('click', pausePlayback);
-      if (dom.restartBtn) dom.restartBtn.addEventListener('click', restartPlayback);
     }
 
     function applySerializedStrategy(data) {
@@ -2104,13 +2550,9 @@ document.addEventListener("spikecoach-auth", function(event) {
         if (e.target === dom.minimapImage) clearMapMarkerFocus();
       });
 
-      dom.arrowModeBtn = document.getElementById('strategyArrowModeBtn');
-      if (dom.arrowModeBtn) {
-        dom.arrowModeBtn.addEventListener('click', function() {
-          if (playback.running) return;
-          state.arrowMode = !state.arrowMode;
-          dom.arrowModeBtn.classList.toggle('is-active', state.arrowMode);
-          dom.arrowModeBtn.setAttribute('aria-pressed', state.arrowMode ? 'true' : 'false');
+      if (dom.minimapImage) {
+        dom.minimapImage.addEventListener('load', function() {
+          if (state.mapName) ensureWalkMask(state.mapName, dom.minimapImage);
         });
       }
 
@@ -2139,7 +2581,6 @@ document.addEventListener("spikecoach-auth", function(event) {
       dom.duplicateBtn = document.getElementById('strategyDuplicateBtn');
       dom.playBtn = document.getElementById('strategyPlayBtn');
       dom.pauseBtn = document.getElementById('strategyPauseBtn');
-      dom.restartBtn = document.getElementById('strategyRestartBtn');
       if (dom.playbackLayer) {
         dom.playbackLayer.style.setProperty('--strategy-move', PLAYBACK_CONFIG.transitionDuration + 'ms');
       }
