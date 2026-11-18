@@ -2762,9 +2762,9 @@ a.btn-primary:hover {
 }
 
 .strategy-ability-map-marker {
-  width: 20px;
-  height: 20px;
-  border-radius: 6px;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
   border: 2px solid var(--border-accent);
   background: rgba(15, 16, 24, 0.9);
   display: flex;
@@ -2778,8 +2778,8 @@ a.btn-primary:hover {
 }
 
 .strategy-ability-map-marker img {
-  width: 14px;
-  height: 14px;
+  width: 21px;
+  height: 21px;
   object-fit: contain;
 }
 
@@ -2945,15 +2945,15 @@ a.btn-primary:hover {
 }
 
 .strategy-drag-ghost.strategy-ability-ghost {
-  width: 20px;
-  height: 20px;
-  border-radius: 6px;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
   background: rgba(15, 16, 24, 0.92);
 }
 
 .strategy-drag-ghost.strategy-ability-ghost img {
-  width: 14px;
-  height: 14px;
+  width: 21px;
+  height: 21px;
   border-radius: 0;
   object-fit: contain;
 }
@@ -3200,9 +3200,9 @@ a.btn-primary:hover {
 }
 
 .strategy-play-ability {
-  width: 20px;
-  height: 20px;
-  border-radius: 6px;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
   border: 2px solid var(--border-accent);
   background: rgba(15, 16, 24, 0.9);
   display: flex;
@@ -3211,8 +3211,8 @@ a.btn-primary:hover {
 }
 
 .strategy-play-ability img {
-  width: 14px;
-  height: 14px;
+  width: 21px;
+  height: 21px;
   object-fit: contain;
 }
 
