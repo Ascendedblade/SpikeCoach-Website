@@ -180,7 +180,7 @@ document.addEventListener("spikecoach-auth", function(event) {
     };
     var videoExport = { running: false, statusTimer: 0 };
     var SMOKE_MARKER_CONFIG = {
-      diameterNormalized: 0.075,
+      diameterNormalized: 0.06,
       opacity: 0.74,
       omenOpacity: 0.84,
       iconBlue: '#6eb6ff',
@@ -235,7 +235,7 @@ document.addEventListener("spikecoach-auth", function(event) {
         gapRatio: 0.38,
         draggable: true
       },
-      'Agent_Abilities/Deadlock/CC8B64C8-4B25-4FF9-6E7F-37B4DA43D235_Grenade.png': {
+      'Agent_Abilities/Deadlock/CC8B64C8-4B25-4FF9-6E7F-37B4DA43D235_Ability2.png': {
         id: 'deadlockWall',
         type: 'intersecting-x',
         color: '#162033',
@@ -433,10 +433,10 @@ document.addEventListener("spikecoach-auth", function(event) {
         for (var y = 1; y < BOUNDARY_GRID - 1; y++) {
           for (var x = 1; x < BOUNDARY_GRID - 1; x++) {
             var p = y * BOUNDARY_GRID + x;
-            if (lum[p] < 200) continue;
-            var darker = lum[p - 1] < lum[p] - 50 || lum[p + 1] < lum[p] - 50 ||
-              lum[p - BOUNDARY_GRID] < lum[p] - 50 || lum[p + BOUNDARY_GRID] < lum[p] - 50;
-            if (darker) mask[p] = 1;
+            if (lum[p] < 185) continue;
+            var voidNeighbor = lum[p - 1] < 42 || lum[p + 1] < 42 ||
+              lum[p - BOUNDARY_GRID] < 42 || lum[p + BOUNDARY_GRID] < 42;
+            if (voidNeighbor) mask[p] = 1;
           }
         }
         boundaryCache[mapName] = mask;
@@ -469,7 +469,7 @@ document.addEventListener("spikecoach-auth", function(event) {
         var length = config.defaultArmRatio;
         if (config.snapToNearbyMapBoundary) {
           var hit = rayBoundaryDistance(mask, center, dir, reach);
-          if (hit !== null) length = hit;
+          if (hit !== null && hit > length) length = hit;
         }
         return {
           x: center.x + dir.x * length,

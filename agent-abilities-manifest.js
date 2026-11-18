@@ -113,7 +113,7 @@ window.AGENT_ABILITY_MANIFEST={
   ],
   "Deadlock": [
     {
-      "src": "Agent_Abilities/Deadlock/CC8B64C8-4B25-4FF9-6E7F-37B4DA43D235_Grenade.png",
+      "src": "Agent_Abilities/Deadlock/CC8B64C8-4B25-4FF9-6E7F-37B4DA43D235_Ability2.png",
       "label": "C"
     },
     {
@@ -121,7 +121,7 @@ window.AGENT_ABILITY_MANIFEST={
       "label": "Q"
     },
     {
-      "src": "Agent_Abilities/Deadlock/CC8B64C8-4B25-4FF9-6E7F-37B4DA43D235_Ability2.png",
+      "src": "Agent_Abilities/Deadlock/CC8B64C8-4B25-4FF9-6E7F-37B4DA43D235_Grenade.png",
       "label": "E"
     },
     {
