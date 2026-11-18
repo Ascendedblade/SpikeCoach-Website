@@ -2582,7 +2582,8 @@ a.btn-primary:hover {
   transform: scaleX(-1);
 }
 
-.strategy-map-flip.is-flipped .strategy-wall-preview-icon {
+.strategy-map-flip.is-flipped .strategy-wall-preview-icon,
+.strategy-map-flip.is-flipped .strategy-smoke-icon {
   transform: translate(-50%, -50%) scaleX(-1);
 }
 
@@ -2817,6 +2818,24 @@ a.btn-primary:hover {
   width: 30%;
   height: 30%;
   background: transparent;
+  opacity: 0;
+}
+
+.strategy-smoke-icon {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 30%;
+  height: 30%;
+  transform: translate(-50%, -50%);
+  z-index: 1;
+  pointer-events: none;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
 }
 
 .strategy-ability-map-marker.is-smoke.is-selected .strategy-smoke-circle {
