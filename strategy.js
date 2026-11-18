@@ -154,7 +154,8 @@ document.addEventListener("spikecoach-auth", function(event) {
       mapSelection: null,
       arrows: [],
       spike: null,
-      drag: null
+      drag: null,
+      wallTool: null
     };
     var SPIKE_ICON_SRC = 'Other_images/Spike_nobg.png';
     var SEQUENCE_COUNT = 8;
@@ -177,9 +178,82 @@ document.addEventListener("spikecoach-auth", function(event) {
       mimeTypes: ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm']
     };
     var videoExport = { running: false, statusTimer: 0 };
+    var SMOKE_MARKER_CONFIG = {
+      diameterNormalized: 0.15,
+      opacity: 0.46
+    };
+    var SMOKE_ABILITIES = {
+      'Agent_Abilities/Omen/8E253930-4C05-31DD-1B6C-968525494517_Ability2.png': {
+        agentId: 'Omen', abilityKey: 'E', fill: '#1a1a1e', border: '#b7b7be'
+      },
+      'Agent_Abilities/Clove/1DBF2EDD-4729-0984-3115-DAA5EED44993_Ability2.png': {
+        agentId: 'Clove', abilityKey: 'E', fill: '#e85ca8', border: '#ffb3d4'
+      },
+      'Agent_Abilities/Brimstone/9F0D8BA9-4140-B941-57D3-A7AD57C6B417_Ability2.png': {
+        agentId: 'Brimstone', abilityKey: 'E', fill: '#d63031', border: '#ffb0a8'
+      },
+      'Agent_Abilities/Miks/M-pulse.webp': {
+        agentId: 'Miks', abilityKey: 'E', fill: '#e67e22', border: '#ffc48a'
+      },
+      'Agent_Abilities/Astra/41FB69C1-4189-7B37-F117-BCAF1E96F1BF_Ability2.png': {
+        agentId: 'Astra', abilityKey: 'E', fill: '#8e44ad', border: '#d7a6ea'
+      },
+      'Agent_Abilities/Viper/707EAB51-4836-F488-046A-CDA6BF494859_Ability1.png': {
+        agentId: 'Viper', abilityKey: 'Q', fill: '#27ae60', border: '#9be7b8'
+      }
+    };
+    var WALL_ABILITY_CONFIG = {
+      'Agent_Abilities/Astra/41FB69C1-4189-7B37-F117-BCAF1E96F1BF_Ultimate.png': {
+        id: 'astraUltWall',
+        type: 'single',
+        color: '#8e44ad',
+        opacity: 0.58,
+        thicknessRatio: 0.75,
+        maxLengthRatio: null,
+        draggable: true
+      },
+      'Agent_Abilities/Viper/707EAB51-4836-F488-046A-CDA6BF494859_Ability2.png': {
+        id: 'viperWall',
+        type: 'single',
+        color: '#1f9d55',
+        opacity: 0.52,
+        thicknessRatio: 0.5,
+        maxLengthRatio: 0.33,
+        draggable: true
+      },
+      'Agent_Abilities/Neon/BB2A4828-46EB-8CD1-E765-15848195D751_Grenade.png': {
+        id: 'neonWall',
+        type: 'double-parallel',
+        color: '#2f80ed',
+        opacity: 0.55,
+        thicknessRatio: 0.5,
+        maxLengthRatio: 0.2,
+        gapRatio: 1,
+        draggable: true
+      },
+      'Agent_Abilities/Deadlock/CC8B64C8-4B25-4FF9-6E7F-37B4DA43D235_Grenade.png': {
+        id: 'deadlockWall',
+        type: 'intersecting-x',
+        color: '#162033',
+        opacity: 0.8,
+        thicknessRatio: 0.55,
+        draggable: false,
+        snapToNearbyMapBoundary: true,
+        defaultArmRatio: 0.09,
+        boundaryThresholdRatio: 0.08
+      }
+    };
+    var WALL_ARM_DIRS = [
+      { x: 0.70710678, y: 0.70710678 },
+      { x: -0.70710678, y: 0.70710678 },
+      { x: 0.70710678, y: -0.70710678 },
+      { x: -0.70710678, y: -0.70710678 }
+    ];
+    var BOUNDARY_GRID = 160;
     var ARROW_MIN_PCT = 4;
     var NAV_GRID = 100;
     var walkabilityCache = {};
+    var boundaryCache = {};
     var sequences = [];
     var sequenceTouched = [];
     var activeSequence = 0;
@@ -209,6 +283,340 @@ document.addEventListener("spikecoach-auth", function(event) {
     function agentIconSrc(agentId) {
       if (window.valorantAgentIconPath) return window.valorantAgentIconPath(agentId);
       return 'Agent_Icons/' + agentId + '_icon.webp';
+    }
+
+    function smokeForAbility(src) {
+      return src ? SMOKE_ABILITIES[src] || null : null;
+    }
+
+    function smokeCssColor(hex, alpha) {
+      var value = parseInt(hex.slice(1), 16);
+      return 'rgba(' + ((value >> 16) & 255) + ',' + ((value >> 8) & 255) + ',' + (value & 255) + ',' + alpha + ')';
+    }
+
+    function decorateSmokeMarker(el, src) {
+      var smoke = smokeForAbility(src);
+      if (!smoke) return;
+      var alpha = smoke.agentId === 'Omen' ? 0.55 : SMOKE_MARKER_CONFIG.opacity;
+      el.classList.add('is-smoke');
+      el.style.width = (SMOKE_MARKER_CONFIG.diameterNormalized * 100) + '%';
+      el.style.height = (SMOKE_MARKER_CONFIG.diameterNormalized * 100) + '%';
+      el.style.setProperty('--smoke-fill', smokeCssColor(smoke.fill, alpha));
+      el.style.setProperty('--smoke-border', smokeCssColor(smoke.border, 0.8));
+      var circle = document.createElement('span');
+      circle.className = 'strategy-smoke-circle';
+      circle.setAttribute('aria-hidden', 'true');
+      el.insertBefore(circle, el.firstChild);
+    }
+
+    function wallForAbility(src) {
+      return src ? WALL_ABILITY_CONFIG[src] || null : null;
+    }
+
+    function decorateWallMarker(el, src) {
+      var wall = wallForAbility(src);
+      if (!wall) return;
+      el.classList.add('is-wall');
+      el.dataset.wallType = wall.type;
+    }
+
+    function editorAgentDiameter() {
+      var el = dom.mapContent || dom.minimapContainer;
+      var layout = 760;
+      if (el) {
+        var rect = el.getBoundingClientRect();
+        var scale = mapView.scale || 1;
+        if (rect.width) layout = rect.width / scale;
+      }
+      if (!layout) layout = 760;
+      return 38 / layout;
+    }
+
+    function exportAgentDiameter(mapSize) {
+      return Math.max(32, mapSize * 0.056) / mapSize;
+    }
+
+    function clampEdgePct(n) {
+      if (n < 0) return 0;
+      if (n > 100) return 100;
+      return n;
+    }
+
+    function clampUnit(n) {
+      if (n < 0) return 0;
+      if (n > 1) return 1;
+      return n;
+    }
+
+    function clientToMapEdge(clientX, clientY) {
+      var surface = dom.mapContent || dom.minimapContainer;
+      var rect = surface.getBoundingClientRect();
+      if (!rect.width || !rect.height) return { x: 50, y: 50 };
+      var x = ((clientX - rect.left) / rect.width) * 100;
+      var y = ((clientY - rect.top) / rect.height) * 100;
+      if (mapView.flipped) x = 100 - x;
+      return { x: clampEdgePct(x), y: clampEdgePct(y) };
+    }
+
+    function clampSegmentEnd(start, end, maxLengthRatio) {
+      var dx = end.x - start.x;
+      var dy = end.y - start.y;
+      var len = Math.hypot(dx, dy);
+      var next = end;
+      if (maxLengthRatio && len > maxLengthRatio) {
+        var scale = maxLengthRatio / len;
+        next = { x: start.x + dx * scale, y: start.y + dy * scale };
+      }
+      return { x: clampUnit(next.x), y: clampUnit(next.y) };
+    }
+
+    function shiftedSegment(start, end, ox, oy) {
+      return {
+        x1: start.x + ox,
+        y1: start.y + oy,
+        x2: end.x + ox,
+        y2: end.y + oy
+      };
+    }
+
+    function parallelWalls(start, end, diameter, config) {
+      var dx = end.x - start.x;
+      var dy = end.y - start.y;
+      var len = Math.hypot(dx, dy);
+      if (len < 0.0001) return [];
+      var px = -dy / len;
+      var py = dx / len;
+      var thickness = diameter * config.thicknessRatio;
+      var clearGap = diameter * (config.gapRatio || 1);
+      var offset = (clearGap + thickness) / 2;
+      return [
+        shiftedSegment(start, end, px * offset, py * offset),
+        shiftedSegment(start, end, -px * offset, -py * offset)
+      ];
+    }
+
+    function ensureBoundaryMask(mapName, img) {
+      if (!mapName || !img || !img.naturalWidth) return null;
+      if (boundaryCache[mapName]) return boundaryCache[mapName];
+      try {
+        var canvas = document.createElement('canvas');
+        canvas.width = BOUNDARY_GRID;
+        canvas.height = BOUNDARY_GRID;
+        var ctx = canvas.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(img, 0, 0, BOUNDARY_GRID, BOUNDARY_GRID);
+        var data = ctx.getImageData(0, 0, BOUNDARY_GRID, BOUNDARY_GRID).data;
+        var lum = new Uint8Array(BOUNDARY_GRID * BOUNDARY_GRID);
+        var mask = new Uint8Array(BOUNDARY_GRID * BOUNDARY_GRID);
+        var i;
+        for (i = 0; i < lum.length; i++) {
+          var o = i * 4;
+          if (data[o + 3] < 28) continue;
+          lum[i] = (data[o] + data[o + 1] + data[o + 2]) / 3;
+        }
+        for (var y = 1; y < BOUNDARY_GRID - 1; y++) {
+          for (var x = 1; x < BOUNDARY_GRID - 1; x++) {
+            var p = y * BOUNDARY_GRID + x;
+            if (lum[p] < 200) continue;
+            var darker = lum[p - 1] < lum[p] - 50 || lum[p + 1] < lum[p] - 50 ||
+              lum[p - BOUNDARY_GRID] < lum[p] - 50 || lum[p + BOUNDARY_GRID] < lum[p] - 50;
+            if (darker) mask[p] = 1;
+          }
+        }
+        boundaryCache[mapName] = mask;
+        return mask;
+      } catch (err) {
+        return null;
+      }
+    }
+
+    function rayBoundaryDistance(mask, center, dir, maxDist) {
+      if (!mask) return null;
+      var steps = Math.ceil(maxDist * BOUNDARY_GRID);
+      var skip = Math.max(2, Math.round(0.012 * BOUNDARY_GRID));
+      for (var s = skip; s <= steps; s++) {
+        var dist = s / BOUNDARY_GRID;
+        var x = center.x + dir.x * dist;
+        var y = center.y + dir.y * dist;
+        if (x < 0 || y < 0 || x > 1 || y > 1) return null;
+        var cx = Math.round(x * (BOUNDARY_GRID - 1));
+        var cy = Math.round(y * (BOUNDARY_GRID - 1));
+        if (mask[cy * BOUNDARY_GRID + cx]) return dist;
+      }
+      return null;
+    }
+
+    function deadlockArmEnds(center, config) {
+      var reach = config.defaultArmRatio + config.boundaryThresholdRatio;
+      var mask = state.mapName ? boundaryCache[state.mapName] : null;
+      return WALL_ARM_DIRS.map(function(dir) {
+        var length = config.defaultArmRatio;
+        if (config.snapToNearbyMapBoundary) {
+          var hit = rayBoundaryDistance(mask, center, dir, reach);
+          if (hit !== null) length = hit;
+        }
+        return {
+          x: center.x + dir.x * length,
+          y: center.y + dir.y * length
+        };
+      });
+    }
+
+    function wallSegmentsUnit(config, start, end, diameter, arms) {
+      if (!config || !start) return [];
+      if (config.type === 'single') {
+        if (!end) return [];
+        return [{ x1: start.x, y1: start.y, x2: end.x, y2: end.y }];
+      }
+      if (config.type === 'double-parallel') {
+        if (!end) return [];
+        return parallelWalls(start, end, diameter, config);
+      }
+      if (config.type === 'intersecting-x') {
+        var ends = arms || deadlockArmEnds(start, config);
+        return ends.map(function(arm) {
+          return { x1: start.x, y1: start.y, x2: arm.x, y2: arm.y };
+        });
+      }
+      return [];
+    }
+
+    function placementWallSegments(placement, diameter) {
+      var config = wallForAbility(placement && placement.src);
+      if (!config || !placement.mapPos) return [];
+      var start = { x: placement.mapPos.x / 100, y: placement.mapPos.y / 100 };
+      var end = placement.wallEnd ? { x: placement.wallEnd.x / 100, y: placement.wallEnd.y / 100 } : null;
+      if (config.draggable && !end) return [];
+      var arms = config.type === 'intersecting-x' ? deadlockArmEnds(start, config) : null;
+      return wallSegmentsUnit(config, start, end, diameter, arms);
+    }
+
+    function appendWallLines(svg, segments, config, preview, abilityId) {
+      var width = editorAgentDiameter() * config.thicknessRatio * 100;
+      segments.forEach(function(seg) {
+        var line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        line.setAttribute('class', preview ? 'strategy-wall-line strategy-wall-preview' : 'strategy-wall-line');
+        if (abilityId) line.setAttribute('data-ability-id', abilityId);
+        line.setAttribute('x1', seg.x1 * 100);
+        line.setAttribute('y1', seg.y1 * 100);
+        line.setAttribute('x2', seg.x2 * 100);
+        line.setAttribute('y2', seg.y2 * 100);
+        line.setAttribute('stroke', config.color);
+        line.setAttribute('stroke-width', width);
+        line.setAttribute('stroke-linecap', 'round');
+        line.setAttribute('stroke-opacity', String(config.opacity));
+        svg.appendChild(line);
+      });
+    }
+
+    function clearWallPreview() {
+      if (!dom.wallSvg) return;
+      dom.wallSvg.querySelectorAll('.strategy-wall-preview').forEach(function(node) { node.remove(); });
+    }
+
+    function syncWalls() {
+      if (!dom.wallSvg) return;
+      dom.wallSvg.querySelectorAll('.strategy-wall-line:not(.strategy-wall-preview)').forEach(function(node) {
+        node.remove();
+      });
+      if (state.mapName && dom.minimapImage) ensureBoundaryMask(state.mapName, dom.minimapImage);
+      var diameter = editorAgentDiameter();
+      TEAM_IDS.forEach(function(teamId) {
+        getTeam(teamId).slots.forEach(function(slot) {
+          (slot.abilityPlacements || []).forEach(function(placement) {
+            var config = wallForAbility(placement.src);
+            if (!config) return;
+            appendWallLines(dom.wallSvg, placementWallSegments(placement, diameter), config, false, placement.id);
+          });
+        });
+      });
+    }
+
+    function setWallTool(tool) {
+      if (state.wallTool && state.wallTool.button) state.wallTool.button.classList.remove('is-wall-armed');
+      state.wallTool = tool;
+      if (tool && tool.button) tool.button.classList.add('is-wall-armed');
+    }
+
+    function updateWallPreview(d) {
+      if (!dom.wallSvg || !d.startUnit || !d.endUnit) return;
+      var config = wallForAbility(d.ability.src);
+      if (!config) return;
+      clearWallPreview();
+      appendWallLines(
+        dom.wallSvg,
+        wallSegmentsUnit(config, d.startUnit, d.endUnit, editorAgentDiameter(), null),
+        config,
+        true,
+        ''
+      );
+      var icon = d.previewIcon;
+      if (!icon) {
+        icon = document.createElement('img');
+        icon.className = 'strategy-wall-preview-icon';
+        icon.alt = '';
+        icon.src = d.ability.src;
+        (dom.mapFlip || dom.mapLayer).appendChild(icon);
+        d.previewIcon = icon;
+      }
+      icon.style.left = (d.startUnit.x * 100) + '%';
+      icon.style.top = (d.startUnit.y * 100) + '%';
+    }
+
+    function strokeWallSegments(ctx, segments, config, mapSize, toPixel, opacity) {
+      if (!segments.length) return;
+      var diameter = exportAgentDiameter(mapSize);
+      ctx.save();
+      ctx.globalAlpha = (opacity == null ? 1 : opacity) * config.opacity;
+      ctx.strokeStyle = config.color;
+      ctx.lineWidth = Math.max(2, mapSize * diameter * config.thicknessRatio);
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      segments.forEach(function(seg) {
+        var a = toPixel(seg.x1, seg.y1);
+        var b = toPixel(seg.x2, seg.y2);
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+      });
+      ctx.restore();
+    }
+
+    function paintAbilityMarker(ctx, src, x, y, mapSize, loaded, teamId) {
+      var smoke = smokeForAbility(src);
+      var icon = iconBySrc(src, loaded);
+      if (wallForAbility(src)) {
+        if (icon) {
+          var iconPx = Math.max(32, mapSize * 0.056) * 0.74;
+          ctx.drawImage(icon, x - iconPx / 2, y - iconPx / 2, iconPx, iconPx);
+        }
+        return;
+      }
+      if (smoke) {
+        var alpha = smoke.agentId === 'Omen' ? 0.55 : SMOKE_MARKER_CONFIG.opacity;
+        var radius = mapSize * SMOKE_MARKER_CONFIG.diameterNormalized / 2;
+        ctx.beginPath();
+        ctx.arc(x, y, radius, 0, Math.PI * 2);
+        ctx.fillStyle = smokeCssColor(smoke.fill, alpha);
+        ctx.fill();
+        ctx.lineWidth = Math.max(2, mapSize * 0.0035);
+        ctx.strokeStyle = smokeCssColor(smoke.border, 0.8);
+        ctx.stroke();
+        if (icon) {
+          var iconSize = radius * 0.56;
+          ctx.drawImage(icon, x - iconSize / 2, y - iconSize / 2, iconSize, iconSize);
+        }
+        return;
+      }
+      var size = Math.max(28, mapSize * 0.045);
+      ctx.fillStyle = 'rgba(15, 25, 35, 0.9)';
+      ctx.strokeStyle = teamId === 'blue' ? '#5dade2' : '#ec7063';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.rect(x - size / 2, y - size / 2, size, size);
+      ctx.fill();
+      ctx.stroke();
+      if (icon) ctx.drawImage(icon, x - size * 0.38, y - size * 0.38, size * 0.76, size * 0.76);
     }
 
     function getAgentAbilities(agentId) {
@@ -400,6 +808,7 @@ document.addEventListener("spikecoach-auth", function(event) {
       state.teams = { blue: createEmptyTeamState(), red: createEmptyTeamState() };
       state.arrows = [];
       state.spike = null;
+      state.wallTool = null;
       clearMapSelection();
     }
 
@@ -519,6 +928,7 @@ document.addEventListener("spikecoach-auth", function(event) {
         dom.entitiesLayer.appendChild(buildSpikeMapMarker(state.spike));
       }
       syncArrows();
+      syncWalls();
     }
 
     function buildSpikeMapMarker(spike) {
@@ -602,7 +1012,15 @@ document.addEventListener("spikecoach-auth", function(event) {
         var btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'strategy-ability-btn';
-        btn.title = ability.label + ' · drag onto the map';
+        var wallAbility = wallForAbility(ability.src);
+        btn.title = wallAbility && wallAbility.draggable
+          ? ability.label + ' · press, then drag on the map to draw the wall'
+          : ability.label + ' · drag onto the map';
+        if (state.wallTool && state.wallTool.teamId === teamId && state.wallTool.slotIndex === slotIndex &&
+            state.wallTool.ability && state.wallTool.ability.src === ability.src) {
+          btn.classList.add('is-wall-armed');
+          state.wallTool.button = btn;
+        }
         btn.dataset.abilitySrc = ability.src;
         var img = document.createElement('img');
         img.src = ability.src;
@@ -639,6 +1057,8 @@ document.addEventListener("spikecoach-auth", function(event) {
       img.alt = placement.label;
       img.draggable = false;
       el.appendChild(img);
+      decorateSmokeMarker(el, placement.src);
+      decorateWallMarker(el, placement.src);
 
       el.addEventListener('pointerdown', function(e) {
         e.stopPropagation();
@@ -863,6 +1283,10 @@ document.addEventListener("spikecoach-auth", function(event) {
       if (state.drag.previewLine && state.drag.previewLine.parentNode) {
         state.drag.previewLine.parentNode.removeChild(state.drag.previewLine);
       }
+      if (state.drag.previewIcon && state.drag.previewIcon.parentNode) {
+        state.drag.previewIcon.parentNode.removeChild(state.drag.previewIcon);
+      }
+      clearWallPreview();
       if (state.drag.ghost && state.drag.ghost.parentNode) {
         state.drag.ghost.parentNode.removeChild(state.drag.ghost);
       }
@@ -898,14 +1322,41 @@ document.addEventListener("spikecoach-auth", function(event) {
       }
       if (d.mode === 'ability-map') {
         if (!isInsideMapClient(e.clientX, e.clientY)) return;
-        var abPos = clientToMapPercent(e.clientX, e.clientY);
         var placement = findAbilityPlacement(d.teamId, d.slotIndex, d.abilityId);
+        var abPos = placement && wallForAbility(placement.src)
+          ? clientToMapEdge(e.clientX, e.clientY)
+          : clientToMapPercent(e.clientX, e.clientY);
+        if (placement && placement.wallEnd && placement.mapPos) {
+          placement.wallEnd = {
+            x: clampEdgePct(placement.wallEnd.x + (abPos.x - placement.mapPos.x)),
+            y: clampEdgePct(placement.wallEnd.y + (abPos.y - placement.mapPos.y))
+          };
+        }
         if (placement) placement.mapPos = abPos;
         if (d.el) {
           d.el.style.left = abPos.x + '%';
           d.el.style.top = abPos.y + '%';
         }
+        syncWalls();
         syncArrows();
+      }
+      if (d.mode === 'wall-draw') {
+        if (!isInsideMapClient(e.clientX, e.clientY)) return;
+        var wallConfig = wallForAbility(d.ability.src);
+        if (!wallConfig) return;
+        var edge = clientToMapEdge(e.clientX, e.clientY);
+        var unit = { x: edge.x / 100, y: edge.y / 100 };
+        if (!d.startUnit) {
+          if (d.trayButton) {
+            var buttonRect = d.trayButton.getBoundingClientRect();
+            var outsideButton = e.clientX < buttonRect.left - 8 || e.clientX > buttonRect.right + 8 ||
+              e.clientY < buttonRect.top - 8 || e.clientY > buttonRect.bottom + 8;
+            if (!outsideButton) return;
+          }
+          d.startUnit = unit;
+        }
+        d.endUnit = clampSegmentEnd(d.startUnit, unit, wallConfig.maxLengthRatio);
+        updateWallPreview(d);
       }
       if (d.mode === 'spike-map') {
         if (!isInsideMapClient(e.clientX, e.clientY)) return;
@@ -958,13 +1409,42 @@ document.addEventListener("spikecoach-auth", function(event) {
         if (d.moved && d.trayButton) d.trayButton.dataset.suppressClick = '1';
         var insideAb = isInsideMapClient(e.clientX, e.clientY);
         if (insideAb && d.moved) {
+          var placedWall = wallForAbility(d.ability.src);
           getTeam(d.teamId).slots[d.slotIndex].abilityPlacements.push({
             id: genMapItemId('ab'),
             src: d.ability.src,
             label: d.ability.label,
-            mapPos: clientToMapPercent(e.clientX, e.clientY)
+            mapPos: placedWall && !placedWall.draggable
+              ? clientToMapEdge(e.clientX, e.clientY)
+              : clientToMapPercent(e.clientX, e.clientY)
           });
           syncMapScene();
+        }
+      }
+      if (d.mode === 'wall-draw') {
+        var drawn = wallForAbility(d.ability.src);
+        var length = 0;
+        if (d.startUnit && d.endUnit) {
+          length = Math.hypot(d.endUnit.x - d.startUnit.x, d.endUnit.y - d.startUnit.y);
+        }
+        if (drawn && d.startUnit && d.endUnit && length >= 0.02) {
+          getTeam(d.teamId).slots[d.slotIndex].abilityPlacements.push({
+            id: genMapItemId('ab'),
+            src: d.ability.src,
+            label: d.ability.label,
+            mapPos: { x: d.startUnit.x * 100, y: d.startUnit.y * 100 },
+            wallEnd: { x: d.endUnit.x * 100, y: d.endUnit.y * 100 }
+          });
+          d.saved = true;
+          setWallTool(null);
+          syncMapScene();
+        } else if (d.fromTray && !d.moved) {
+          setWallTool({
+            teamId: d.teamId,
+            slotIndex: d.slotIndex,
+            ability: d.ability,
+            button: d.trayButton
+          });
         }
       }
       if (d.mode === 'marker') {
@@ -1073,11 +1553,74 @@ document.addEventListener("spikecoach-auth", function(event) {
       document.addEventListener('pointercancel', onDragEnd);
     }
 
+    function startWallDraw(e, teamId, slotIndex, ability, trayButton) {
+      if (playback.running) return;
+      e.preventDefault();
+      state.drag = {
+        mode: 'wall-draw',
+        teamId: teamId,
+        slotIndex: slotIndex,
+        ability: ability,
+        trayButton: trayButton,
+        fromTray: true,
+        startX: e.clientX,
+        startY: e.clientY,
+        moved: false,
+        startUnit: null,
+        endUnit: null,
+        previewIcon: null
+      };
+      if (trayButton.setPointerCapture) {
+        try { trayButton.setPointerCapture(e.pointerId); } catch (err) { /* pointer already released */ }
+      }
+      document.addEventListener('pointermove', onDragMove);
+      document.addEventListener('pointerup', onDragEnd);
+      document.addEventListener('pointercancel', onDragEnd);
+    }
+
+    function tryStartArmedWall(e) {
+      if (!state.wallTool || playback.running || e.button !== 0) return false;
+      if (isStrategyObjectTarget(e.target)) return false;
+      if (!isInsideMapClient(e.clientX, e.clientY)) return false;
+      var tool = state.wallTool;
+      var edge = clientToMapEdge(e.clientX, e.clientY);
+      var unit = { x: edge.x / 100, y: edge.y / 100 };
+      e.preventDefault();
+      state.drag = {
+        mode: 'wall-draw',
+        teamId: tool.teamId,
+        slotIndex: tool.slotIndex,
+        ability: tool.ability,
+        trayButton: tool.button || null,
+        fromTray: false,
+        startX: e.clientX,
+        startY: e.clientY,
+        moved: false,
+        startUnit: unit,
+        endUnit: unit,
+        previewIcon: null
+      };
+      updateWallPreview(state.drag);
+      if (dom.minimapContainer && dom.minimapContainer.setPointerCapture) {
+        try { dom.minimapContainer.setPointerCapture(e.pointerId); } catch (err) { /* pointer already released */ }
+      }
+      document.addEventListener('pointermove', onDragMove);
+      document.addEventListener('pointerup', onDragEnd);
+      document.addEventListener('pointercancel', onDragEnd);
+      return true;
+    }
+
     function startAbilityTrayDrag(e, teamId, slotIndex, ability, trayButton) {
       if (playback.running) return;
       e.preventDefault();
       var slot = getTeam(teamId).slots[slotIndex];
       if (!slot.mapPos) return;
+      var wallAbility = wallForAbility(ability.src);
+      if (wallAbility && wallAbility.draggable) {
+        startWallDraw(e, teamId, slotIndex, ability, trayButton);
+        return;
+      }
+      setWallTool(null);
 
       var ghost = document.createElement('div');
       ghost.className = 'strategy-drag-ghost strategy-ability-ghost team-' + teamId;
@@ -1285,17 +1828,20 @@ document.addEventListener("spikecoach-auth", function(event) {
           getTeam(teamId).slots.forEach(function(slot) {
             (slot.abilityPlacements || []).forEach(function(placement) {
               if (!placement.mapPos) return;
+              var wall = wallForAbility(placement.src);
+              if (wall) {
+                ensureBoundaryMask(state.mapName, mapImg);
+                strokeWallSegments(
+                  ctx,
+                  placementWallSegments(placement, exportAgentDiameter(canvas.width)),
+                  wall,
+                  canvas.width,
+                  function(nx, ny) { return point({ x: nx * 100, y: ny * 100 }); },
+                  1
+                );
+              }
               var p = point(placement.mapPos);
-              var size = Math.max(28, canvas.width * 0.045);
-              ctx.fillStyle = 'rgba(15, 25, 35, 0.9)';
-              ctx.strokeStyle = teamId === 'blue' ? '#5dade2' : '#ec7063';
-              ctx.lineWidth = 2;
-              ctx.beginPath();
-              ctx.rect(p.x - size / 2, p.y - size / 2, size, size);
-              ctx.fill();
-              ctx.stroke();
-              var icon = iconBySrc(placement.src, loaded);
-              if (icon) ctx.drawImage(icon, p.x - size * 0.38, p.y - size * 0.38, size * 0.76, size * 0.76);
+              paintAbilityMarker(ctx, placement.src, p.x, p.y, canvas.width, loaded, teamId);
             });
           });
         });
@@ -1404,6 +1950,7 @@ document.addEventListener("spikecoach-auth", function(event) {
       if (dom.downloadBtn) dom.downloadBtn.disabled = true;
       setExportStatus('Rendering video...');
       ensureWalkMask(state.mapName, dom.minimapImage);
+      ensureBoundaryMask(state.mapName, dom.minimapImage);
 
       var sources = [];
       function queue(src) {
@@ -1552,19 +2099,22 @@ document.addEventListener("spikecoach-auth", function(event) {
 
       function drawAbility(item, opacity) {
         if (!item || opacity <= 0) return;
+        var wall = wallForAbility(item.src);
         var p = mapPoint(item.x, item.y);
-        var size = Math.max(28, mapSize * 0.045);
         ctx.save();
         ctx.globalAlpha = opacity;
-        ctx.fillStyle = 'rgba(15, 25, 35, 0.9)';
-        ctx.strokeStyle = item.teamId === 'blue' ? '#5dade2' : '#ec7063';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.rect(p.x - size / 2, p.y - size / 2, size, size);
-        ctx.fill();
-        ctx.stroke();
-        var icon = iconBySrc(item.src, loaded);
-        if (icon) ctx.drawImage(icon, p.x - size * 0.38, p.y - size * 0.38, size * 0.76, size * 0.76);
+        if (wall) {
+          var diameter = exportAgentDiameter(mapSize);
+          var segments = wallSegmentsUnit(
+            wall,
+            { x: item.x, y: item.y },
+            item.wallEnd || null,
+            diameter,
+            item.wallArms || null
+          );
+          strokeWallSegments(ctx, segments, wall, mapSize, mapPoint, opacity);
+        }
+        paintAbilityMarker(ctx, item.src, p.x, p.y, mapSize, loaded, item.teamId);
         ctx.restore();
       }
 
@@ -1605,16 +2155,38 @@ document.addEventListener("spikecoach-auth", function(event) {
         ctx.restore();
       }
 
+      function blendedAbility(fromItem, toItem, t) {
+        var item = {
+          x: fromItem.x + (toItem.x - fromItem.x) * t,
+          y: fromItem.y + (toItem.y - fromItem.y) * t,
+          teamId: toItem.teamId,
+          src: toItem.src,
+          character: toItem.character,
+          label: toItem.label
+        };
+        if (fromItem.wallEnd && toItem.wallEnd) {
+          item.wallEnd = {
+            x: fromItem.wallEnd.x + (toItem.wallEnd.x - fromItem.wallEnd.x) * t,
+            y: fromItem.wallEnd.y + (toItem.wallEnd.y - fromItem.wallEnd.y) * t
+          };
+        } else if (toItem.wallEnd || fromItem.wallEnd) {
+          item.wallEnd = toItem.wallEnd || fromItem.wallEnd;
+        }
+        if (fromItem.wallArms && toItem.wallArms) {
+          item.wallArms = fromItem.wallArms.map(function(pt, index) {
+            var next = toItem.wallArms[index] || pt;
+            return { x: pt.x + (next.x - pt.x) * t, y: pt.y + (next.y - pt.y) * t };
+          });
+        } else if (toItem.wallArms || fromItem.wallArms) {
+          item.wallArms = toItem.wallArms || fromItem.wallArms;
+        }
+        return item;
+      }
+
       function lerpItem(fromItem, toItem, t) {
         if (fromItem && toItem) {
           return {
-            item: {
-              x: fromItem.x + (toItem.x - fromItem.x) * t,
-              y: fromItem.y + (toItem.y - fromItem.y) * t,
-              teamId: toItem.teamId,
-              src: toItem.src,
-              character: toItem.character
-            },
+            item: blendedAbility(fromItem, toItem, t),
             opacity: 1
           };
         }
@@ -1673,9 +2245,18 @@ document.addEventListener("spikecoach-auth", function(event) {
         });
       }
 
-      function drawHold(seq) {
+      function drawHold(segment) {
+        var seq = segment.seq;
+        if (!segment.cached) {
+          segment.cached = {
+            arrows: collectRouteArrows(seq),
+            abilities: collectAbilities(seq),
+            spikes: collectSpike(seq),
+            agents: collectAgents(seq)
+          };
+        }
         drawMap();
-        collectRouteArrows(seq).forEach(function(arrow) {
+        segment.cached.arrows.forEach(function(arrow) {
           drawArrow(
             { x: arrow.x, y: arrow.y },
             { x: arrow.endX, y: arrow.endY },
@@ -1683,13 +2264,13 @@ document.addEventListener("spikecoach-auth", function(event) {
             1
           );
         });
-        collectAbilities(seq).forEach(function(ability) { drawAbility(ability, 1); });
-        collectSpike(seq).forEach(function(spike) { drawSpike(spike, 1); });
-        collectAgents(seq).forEach(function(agent) { drawAgent(agent, 1); });
+        segment.cached.abilities.forEach(function(ability) { drawAbility(ability, 1); });
+        segment.cached.spikes.forEach(function(spike) { drawSpike(spike, 1); });
+        segment.cached.agents.forEach(function(agent) { drawAgent(agent, 1); });
       }
 
       function drawSegment(segment, t) {
-        if (segment.kind === 'hold') drawHold(segment.seq);
+        if (segment.kind === 'hold') drawHold(segment);
         else {
           var plan = segment.plan;
           if (!plan.fromAgents) {
@@ -1857,6 +2438,7 @@ document.addEventListener("spikecoach-auth", function(event) {
           slot.mapPos = scalePos(slot.mapPos, toNormalized);
           (slot.abilityPlacements || []).forEach(function(placement) {
             placement.mapPos = scalePos(placement.mapPos, toNormalized);
+            if (placement.wallEnd) placement.wallEnd = scalePos(placement.wallEnd, toNormalized);
           });
         });
       });
@@ -1903,6 +2485,7 @@ document.addEventListener("spikecoach-auth", function(event) {
     function sequenceDragChanged(d, e) {
       if (!d || !d.moved) return false;
       if (d.mode === 'arrow-draft') return !!d.saved;
+      if (d.mode === 'wall-draw') return !!d.saved;
       if (d.mode === 'ability-tray' || d.mode === 'spike-tray') return isInsideMapClient(e.clientX, e.clientY);
       return d.mode === 'slot' || d.mode === 'marker' || d.mode === 'ability-map' ||
         d.mode === 'spike-map' || d.mode === 'arrow-end';
@@ -1995,6 +2578,7 @@ document.addEventListener("spikecoach-auth", function(event) {
       dom.playbackLayer.hidden = !on;
       if (dom.entitiesLayer) dom.entitiesLayer.style.visibility = on ? 'hidden' : '';
       if (dom.arrowSvg) dom.arrowSvg.style.visibility = on ? 'hidden' : '';
+      if (dom.wallSvg) dom.wallSvg.style.visibility = on ? 'hidden' : '';
       if (!on) dom.playbackLayer.innerHTML = '';
     }
 
@@ -2043,14 +2627,22 @@ document.addEventListener("spikecoach-auth", function(event) {
         seq.teams[teamId].slots.forEach(function(slot) {
           (slot.abilityPlacements || []).forEach(function(placement) {
             if (!placement.id || !placement.mapPos) return;
-            list.push({
+            var abilityItem = {
               id: placement.id,
               teamId: teamId,
               src: placement.src,
               label: placement.label,
               x: placement.mapPos.x,
               y: placement.mapPos.y
-            });
+            };
+            if (placement.wallEnd) {
+              abilityItem.wallEnd = { x: placement.wallEnd.x, y: placement.wallEnd.y };
+            }
+            var wallConfig = wallForAbility(placement.src);
+            if (wallConfig && wallConfig.type === 'intersecting-x') {
+              abilityItem.wallArms = deadlockArmEnds({ x: abilityItem.x, y: abilityItem.y }, wallConfig);
+            }
+            list.push(abilityItem);
           });
         });
       });
@@ -2308,6 +2900,8 @@ document.addEventListener("spikecoach-auth", function(event) {
       img.alt = item.label || '';
       img.draggable = false;
       el.appendChild(img);
+      decorateSmokeMarker(el, item.src);
+      decorateWallMarker(el, item.src);
       return el;
     }
 
@@ -2417,7 +3011,146 @@ document.addEventListener("spikecoach-auth", function(event) {
       return svg;
     }
 
+    function wallGeom(item) {
+      if (!item) return null;
+      return {
+        start: { x: item.x, y: item.y },
+        end: item.wallEnd ? { x: item.wallEnd.x, y: item.wallEnd.y } : null,
+        arms: item.wallArms ? item.wallArms.map(function(p) { return { x: p.x, y: p.y }; }) : null
+      };
+    }
+
+    function lerpWallPoint(a, b, t) {
+      if (!a) return b;
+      if (!b) return a;
+      return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+    }
+
+    function wallsNeedMotion(fromList, toList) {
+      var from = indexById(fromList);
+      var to = indexById(toList);
+      var changed = false;
+      Object.keys(from).forEach(function(id) {
+        if (wallForAbility(from[id].src) && !to[id]) changed = true;
+      });
+      Object.keys(to).forEach(function(id) {
+        var next = to[id];
+        var prev = from[id];
+        if (!wallForAbility(next.src)) return;
+        if (!prev) {
+          changed = true;
+          return;
+        }
+        if (Math.hypot(prev.x - next.x, prev.y - next.y) > 0.003) changed = true;
+        if (prev.wallEnd && next.wallEnd &&
+            Math.hypot(prev.wallEnd.x - next.wallEnd.x, prev.wallEnd.y - next.wallEnd.y) > 0.003) changed = true;
+        if (prev.wallArms && next.wallArms) {
+          for (var k = 0; k < prev.wallArms.length; k++) {
+            if (!next.wallArms[k]) continue;
+            if (Math.hypot(prev.wallArms[k].x - next.wallArms[k].x, prev.wallArms[k].y - next.wallArms[k].y) > 0.003) changed = true;
+          }
+        }
+      });
+      return changed;
+    }
+
+    function ensurePlaybackWallSvg() {
+      var svg = dom.playbackLayer.querySelector('.strategy-playback-walls');
+      if (svg) return svg;
+      svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('class', 'strategy-playback-walls');
+      svg.setAttribute('viewBox', '0 0 100 100');
+      svg.setAttribute('preserveAspectRatio', 'none');
+      dom.playbackLayer.insertBefore(svg, dom.playbackLayer.firstChild);
+      return svg;
+    }
+
+    function syncPlaybackWalls(fromList, toList, animate, removals) {
+      var svg = ensurePlaybackWallSvg();
+      var fromMap = indexById(fromList);
+      var toMap = indexById(toList);
+      var anims = [];
+      var seen = {};
+      function add(id, next, prev, remove) {
+        var sample = next || prev;
+        var config = wallForAbility(sample.src);
+        if (!config) return;
+        var count = config.type === 'double-parallel' ? 2 : (config.type === 'intersecting-x' ? 4 : 1);
+        var group = svg.querySelector('[data-play-wall="' + id + '"]');
+        if (!group) {
+          group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+          group.setAttribute('data-play-wall', id);
+          group.style.transition = 'opacity var(--strategy-move, 1500ms) linear';
+          for (var i = 0; i < count; i++) {
+            var line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            line.setAttribute('stroke', config.color);
+            line.setAttribute('stroke-linecap', 'round');
+            group.appendChild(line);
+          }
+          svg.appendChild(group);
+        }
+        anims.push({
+          group: group,
+          config: config,
+          from: wallGeom(prev || next),
+          to: wallGeom(next || prev),
+          remove: !!remove,
+          fresh: !prev
+        });
+        seen[id] = true;
+        if (remove) {
+          if (animate) {
+            group.style.opacity = '1';
+            removals.push(group);
+          } else if (group.parentNode) {
+            group.parentNode.removeChild(group);
+          }
+        } else if (!prev && animate) {
+          group.style.opacity = '0';
+        } else {
+          group.style.opacity = '1';
+        }
+      }
+      Object.keys(toMap).forEach(function(id) { add(id, toMap[id], fromMap[id], false); });
+      Object.keys(fromMap).forEach(function(id) {
+        if (toMap[id]) return;
+        add(id, null, fromMap[id], true);
+      });
+      Array.prototype.forEach.call(svg.querySelectorAll('[data-play-wall]'), function(node) {
+        if (!seen[node.getAttribute('data-play-wall')] && node.parentNode) node.parentNode.removeChild(node);
+      });
+      return anims;
+    }
+
+    function paintPlaybackWall(wall, t) {
+      var start = lerpWallPoint(wall.from.start, wall.to.start, t);
+      var end = (wall.from.end || wall.to.end) ? lerpWallPoint(wall.from.end, wall.to.end, t) : null;
+      var arms = null;
+      if (wall.from.arms && wall.to.arms) {
+        arms = wall.from.arms.map(function(pt, index) {
+          return lerpWallPoint(pt, wall.to.arms[index], t);
+        });
+      } else {
+        arms = wall.to.arms || wall.from.arms;
+      }
+      var segments = wallSegmentsUnit(wall.config, start, end, editorAgentDiameter(), arms);
+      var width = editorAgentDiameter() * wall.config.thicknessRatio * 100;
+      for (var i = 0; i < wall.group.children.length; i++) {
+        var line = wall.group.children[i];
+        var seg = segments[i];
+        line.setAttribute('stroke', wall.config.color);
+        line.setAttribute('stroke-width', width);
+        line.setAttribute('stroke-opacity', String(wall.config.opacity));
+        if (!seg) continue;
+        line.setAttribute('x1', seg.x1 * 100);
+        line.setAttribute('y1', seg.y1 * 100);
+        line.setAttribute('x2', seg.x2 * 100);
+        line.setAttribute('y2', seg.y2 * 100);
+      }
+    }
+
     function renderPlaybackFrame(toIndex, fromIndex, animate) {
+      if (state.mapName && dom.minimapImage) ensureBoundaryMask(state.mapName, dom.minimapImage);
       var fromSeq = fromIndex === null || fromIndex === undefined ? null : sequences[fromIndex];
       var toSeq = sequences[toIndex];
       var fromAgents = indexById(collectAgents(fromSeq));
@@ -2449,7 +3182,9 @@ document.addEventListener("spikecoach-auth", function(event) {
           collectRouteArrows(toSeq).forEach(function(arrow) { toArrowIds[arrow.id] = true; });
           Object.keys(fromArrowIds).forEach(function(id) { if (!toArrowIds[id]) faded = true; });
           Object.keys(toArrowIds).forEach(function(id) { if (!fromArrowIds[id]) faded = true; });
-          if (faded) duration = PLAYBACK_CONFIG.transitionDuration;
+          if (faded || wallsNeedMotion(collectAbilities(fromSeq), collectAbilities(toSeq))) {
+            duration = PLAYBACK_CONFIG.transitionDuration;
+          }
         }
       }
       if (dom.playbackLayer) {
@@ -2521,13 +3256,17 @@ document.addEventListener("spikecoach-auth", function(event) {
           line.parentNode.removeChild(line);
         }
       });
+      var fromAbilityList = collectAbilities(fromSeq);
+      var toAbilityList = collectAbilities(toSeq);
+      var wallAnims = syncPlaybackWalls(fromAbilityList, toAbilityList, animate, removals);
       if (playback.motion && playback.motion.raf) cancelAnimationFrame(playback.motion.raf);
       playback.motion = {
         raf: 0,
         startTime: Date.now(),
         duration: duration,
         agents: motions,
-        arrows: arrowAnims
+        arrows: arrowAnims,
+        walls: wallAnims
       };
       applyPlaybackMotion(animate ? 0 : 1);
       if (animate && duration) {
@@ -2535,6 +3274,10 @@ document.addEventListener("spikecoach-auth", function(event) {
         arrowAnims.forEach(function(arrow) {
           if (!fromArrows[arrow.el.getAttribute('data-play-arrow')]) arrow.el.style.opacity = '1';
           if (arrow.remove) arrow.el.style.opacity = '0';
+        });
+        wallAnims.forEach(function(wall) {
+          if (wall.fresh) wall.group.style.opacity = '1';
+          if (wall.remove) wall.group.style.opacity = '0';
         });
         playback.motion.raf = requestAnimationFrame(stepPlaybackMotion);
       }
@@ -2600,6 +3343,9 @@ document.addEventListener("spikecoach-auth", function(event) {
         arrow.el.setAttribute('y1', origin.y * 100);
         arrow.el.setAttribute('x2', end.x * 100);
         arrow.el.setAttribute('y2', end.y * 100);
+      });
+      (motion.walls || []).forEach(function(wall) {
+        paintPlaybackWall(wall, t);
       });
     }
 
@@ -2877,6 +3623,7 @@ document.addEventListener("spikecoach-auth", function(event) {
 
     function startPan(e) {
       if (e.button !== 0) return;
+      if (tryStartArmedWall(e)) return;
       if (mapView.scale <= 1) return;
       if (state.drag || panDrag) return;
       if (isStrategyObjectTarget(e.target)) return;
@@ -2930,6 +3677,7 @@ document.addEventListener("spikecoach-auth", function(event) {
       closeAgentPicker();
       initTimelineBlank();
       resetTeams();
+      renderAllSlots();
       updateTimelineUI();
     }
 
@@ -2997,6 +3745,7 @@ document.addEventListener("spikecoach-auth", function(event) {
       dom.mapLayer = document.getElementById('strategyMapLayer');
       dom.entitiesLayer = document.getElementById('strategyEntitiesLayer');
       dom.arrowSvg = document.getElementById('strategyArrowSvg');
+      dom.wallSvg = document.getElementById('strategyWallSvg');
       dom.blueSlots = document.getElementById('strategyBlueSlots');
       dom.redSlots = document.getElementById('strategyRedSlots');
       dom.picker = document.getElementById('strategyAgentPicker');
@@ -3024,7 +3773,10 @@ document.addEventListener("spikecoach-auth", function(event) {
 
       if (dom.minimapImage) {
         dom.minimapImage.addEventListener('load', function() {
-          if (state.mapName) ensureWalkMask(state.mapName, dom.minimapImage);
+          if (!state.mapName) return;
+          ensureWalkMask(state.mapName, dom.minimapImage);
+          ensureBoundaryMask(state.mapName, dom.minimapImage);
+          syncWalls();
         });
       }
 
@@ -3043,6 +3795,10 @@ document.addEventListener("spikecoach-auth", function(event) {
 
       document.addEventListener('keydown', function(e) {
         if (onDeleteDialogKeydown(e)) return;
+        if (e.key === 'Escape' && state.wallTool && !playback.running) {
+          setWallTool(null);
+          return;
+        }
         if (playback.running) return;
         if (!dom.minimapView || dom.minimapView.style.display === 'none') return;
         if (e.key !== 'Delete' && e.key !== 'Backspace') return;
@@ -3063,6 +3819,10 @@ document.addEventListener("spikecoach-auth", function(event) {
       }
       initTimelineBlank();
       resetTeams();
+      window.addEventListener('resize', function() {
+        if (!dom.wallSvg || !state.mapName || playback.running) return;
+        syncWalls();
+      });
       bindMapView();
       bindTimeline();
       bindMapSelector();

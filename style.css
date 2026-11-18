@@ -2582,6 +2582,10 @@ a.btn-primary:hover {
   transform: scaleX(-1);
 }
 
+.strategy-map-flip.is-flipped .strategy-wall-preview-icon {
+  transform: translate(-50%, -50%) scaleX(-1);
+}
+
 .minimap-image {
   width: 100%;
   height: auto;
@@ -2606,6 +2610,27 @@ a.btn-primary:hover {
 .strategy-arrow-svg {
   z-index: 2;
   overflow: visible;
+}
+
+.strategy-wall-svg,
+.strategy-playback-walls {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.strategy-wall-preview-icon {
+  position: absolute;
+  width: 34px;
+  height: 34px;
+  transform: translate(-50%, -50%);
+  z-index: 6;
+  pointer-events: none;
+  object-fit: contain;
 }
 
 .strategy-entities-layer {
@@ -2749,6 +2774,53 @@ a.btn-primary:hover {
   width: 28px;
   height: 28px;
   object-fit: contain;
+}
+
+.strategy-ability-map-marker.is-smoke,
+.strategy-play-ability.is-smoke {
+  background: transparent;
+  border: none;
+  border-radius: 50%;
+  box-shadow: none;
+}
+
+.strategy-ability-map-marker.is-wall,
+.strategy-play-ability.is-wall {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+
+.strategy-ability-map-marker.is-wall.is-selected {
+  box-shadow: 0 0 0 2px var(--accent-glow);
+}
+
+.strategy-ability-btn.is-wall-armed {
+  outline: 2px solid var(--accent-glow);
+  outline-offset: 2px;
+}
+
+.strategy-smoke-circle {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: var(--smoke-fill);
+  border: 2px solid var(--smoke-border);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.strategy-ability-map-marker.is-smoke img,
+.strategy-play-ability.is-smoke img {
+  position: relative;
+  z-index: 1;
+  width: 30%;
+  height: 30%;
+  background: transparent;
+}
+
+.strategy-ability-map-marker.is-smoke.is-selected .strategy-smoke-circle {
+  box-shadow: 0 0 0 2px var(--accent-glow);
 }
 
 .strategy-spike-map-marker {
@@ -2998,7 +3070,7 @@ a.btn-primary:hover {
   inset: 0;
   width: 100%;
   height: 100%;
-  z-index: 1;
+  z-index: 2;
   overflow: visible;
   pointer-events: none;
 }

@@ -125,7 +125,7 @@
                     <button type="button" class="strategy-spike-source" id="strategySpikeSource" title="Drag the Spike onto the map. Drag it off the map to remove." aria-label="Spike. Drag onto the map.">
                       <img src="Other_images/Spike_nobg.png" alt="" draggable="false">
                     </button>
-                    <p class="strategy-help">Drag agents and abilities onto the map. Right-click an agent and drag to draw an arrow. Drag a piece off the map to remove it.</p>
+                    <p class="strategy-help">Drag agents and abilities onto the map. For Astra, Viper, and Neon walls, press the ability, then drag on the map from the start of the wall to the end. Right-click an agent and drag to draw an arrow. Drag a piece off the map to remove it.</p>
                   </div>
                   <div class="strategy-view-bar">
                     <div class="strategy-zoom" role="group" aria-label="Map zoom">
@@ -145,6 +145,7 @@
                         <div class="strategy-map-flip" id="strategyMapFlip">
                           <img src="" alt="" class="minimap-image" id="minimapImage" draggable="false">
                           <div class="strategy-map-layer" id="strategyMapLayer" aria-hidden="true">
+                            <svg class="strategy-wall-svg" id="strategyWallSvg" viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
                             <svg class="strategy-arrow-svg" id="strategyArrowSvg" viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
                             <div class="strategy-entities-layer" id="strategyEntitiesLayer"></div>
                             <div class="strategy-playback-layer" id="strategyPlaybackLayer" hidden></div>
