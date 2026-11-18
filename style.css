@@ -2178,6 +2178,17 @@ a.btn-primary:hover {
   color: var(--text-muted);
 }
 
+.strategy-export-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.strategy-export-status {
+  font-size: 0.9rem;
+}
+
 .back-button {
   margin-bottom: 0.75rem;
   padding: 0.55rem 0.9rem;
@@ -3071,7 +3082,6 @@ a.btn-primary:hover {
 .strategy-workspace.is-playing .strategy-team-slots,
 .strategy-workspace.is-playing .strategy-map-layer,
 .strategy-workspace.is-playing .strategy-spike-source,
-.strategy-workspace.is-playing #strategyDownloadBtn,
 .strategy-workspace.is-playing #strategyDuplicateBtn {
   pointer-events: none;
 }

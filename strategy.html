@@ -164,7 +164,11 @@
           <section class="strategy-export" aria-label="Download strategy">
             <div class="container strategy-export-inner">
               <p>Export your current strategy for later use.</p>
-              <button type="button" class="strategy-download-btn" id="strategyDownloadBtn">Download Strategy</button>
+              <div class="strategy-export-actions">
+                <button type="button" class="strategy-download-btn" id="strategyDownloadBtn">Export Strategy Video</button>
+                <button type="button" class="strategy-tool-btn" id="strategyImageBtn">Export Image</button>
+                <p id="strategyExportStatus" class="strategy-export-status" hidden></p>
+              </div>
             </div>
           </section>
           <div class="strategy-agent-picker" id="strategyAgentPicker" hidden>

@@ -165,6 +165,18 @@ document.addEventListener("spikecoach-auth", function(event) {
       maxMoveDuration: 2500,
       moveMsPerUnit: 1800
     };
+    var VIDEO_EXPORT = {
+      width: 1280,
+      height: 720,
+      fps: 30,
+      holdFirstMs: 1000,
+      holdBetweenMs: 750,
+      holdFinalMs: 1000,
+      background: '#08080c',
+      filename: 'SpikeCoach-Strategy.webm',
+      mimeTypes: ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm']
+    };
+    var videoExport = { running: false, statusTimer: 0 };
     var ARROW_MIN_PCT = 4;
     var NAV_GRID = 100;
     var walkabilityCache = {};
@@ -1216,7 +1228,7 @@ document.addEventListener("spikecoach-auth", function(event) {
         return;
       }
 
-      var btn = dom.downloadBtn;
+      var btn = dom.imageBtn;
       if (btn) {
         btn.disabled = true;
         btn.textContent = 'Exporting…';
@@ -1338,9 +1350,446 @@ document.addEventListener("spikecoach-auth", function(event) {
       }).then(function() {
         if (btn) {
           btn.disabled = false;
-          btn.textContent = 'Download Strategy';
+          btn.textContent = 'Export Image';
         }
       });
+    }
+
+    function setExportStatus(message) {
+      if (!dom.exportStatus) return;
+      window.clearTimeout(videoExport.statusTimer);
+      if (!message) {
+        dom.exportStatus.hidden = true;
+        dom.exportStatus.textContent = '';
+        return;
+      }
+      dom.exportStatus.hidden = false;
+      dom.exportStatus.textContent = message;
+    }
+
+    function supportedVideoMime() {
+      if (typeof MediaRecorder === 'undefined' || !MediaRecorder.isTypeSupported) return '';
+      for (var i = 0; i < VIDEO_EXPORT.mimeTypes.length; i++) {
+        if (MediaRecorder.isTypeSupported(VIDEO_EXPORT.mimeTypes[i])) return VIDEO_EXPORT.mimeTypes[i];
+      }
+      return '';
+    }
+
+    function exportStrategyVideo() {
+      if (videoExport.running) return;
+      if (!dom.minimapImage || !state.mapName || !dom.minimapImage.naturalWidth) {
+        setExportStatus('Could not export. Wait for the map to finish loading.');
+        return;
+      }
+      var canvasProbe = document.createElement('canvas');
+      if (!canvasProbe.captureStream || typeof MediaRecorder === 'undefined') {
+        setExportStatus('Video export is not supported in this browser.');
+        return;
+      }
+      var mimeType = supportedVideoMime();
+      var frames = [];
+      for (var i = 0; i < sequences.length; i++) {
+        frames.push(i === activeSequence && !playback.running ? snapshotEditor() : sequences[i]);
+      }
+      var playable = [];
+      for (var n = 0; n < frames.length; n++) {
+        if (sequenceTouched[n]) playable.push(n);
+      }
+      if (!playable.length) {
+        setExportStatus('Add a sequence before exporting a video.');
+        return;
+      }
+
+      videoExport.running = true;
+      if (dom.downloadBtn) dom.downloadBtn.disabled = true;
+      setExportStatus('Rendering video...');
+      ensureWalkMask(state.mapName, dom.minimapImage);
+
+      var sources = [];
+      function queue(src) {
+        if (src && sources.indexOf(src) === -1) sources.push(src);
+      }
+      playable.forEach(function(index) {
+        collectAgents(frames[index]).forEach(function(agent) { queue(agentIconSrc(agent.character)); });
+        collectAbilities(frames[index]).forEach(function(ability) { queue(ability.src); });
+        if (collectSpike(frames[index]).length) queue(SPIKE_ICON_SRC);
+      });
+
+      Promise.all(sources.map(loadExportImage)).then(function(loaded) {
+        if (!videoExport.running) return;
+        recordStrategyVideo(frames, playable, loaded, mimeType);
+      }).catch(function() {
+        videoExport.running = false;
+        if (dom.downloadBtn) dom.downloadBtn.disabled = false;
+        setExportStatus('Could not export the strategy video.');
+      });
+    }
+
+    function planSequenceMove(fromSeq, toSeq) {
+      var fromAgents = indexById(collectAgents(fromSeq));
+      var toAgents = indexById(collectAgents(toSeq));
+      var motions = [];
+      var duration = 0;
+      Object.keys(toAgents).forEach(function(id) {
+        if (!fromAgents[id]) return;
+        var path = routeBetween(fromAgents[id], toAgents[id]);
+        var length = routeLength(path);
+        var moveTime = moveDuration(length);
+        motions.push({
+          id: id,
+          path: path,
+          length: length,
+          duration: moveTime
+        });
+        if (moveTime > duration) duration = moveTime;
+      });
+      if (!duration) {
+        var changed = false;
+        Object.keys(fromAgents).forEach(function(id) { if (!toAgents[id]) changed = true; });
+        Object.keys(toAgents).forEach(function(id) { if (!fromAgents[id]) changed = true; });
+        var fromAbilities = indexById(collectAbilities(fromSeq));
+        var toAbilities = indexById(collectAbilities(toSeq));
+        Object.keys(fromAbilities).forEach(function(id) { if (!toAbilities[id]) changed = true; });
+        Object.keys(toAbilities).forEach(function(id) { if (!fromAbilities[id]) changed = true; });
+        var fromArrows = indexById(collectRouteArrows(fromSeq));
+        var toArrows = indexById(collectRouteArrows(toSeq));
+        Object.keys(fromArrows).forEach(function(id) { if (!toArrows[id]) changed = true; });
+        Object.keys(toArrows).forEach(function(id) { if (!fromArrows[id]) changed = true; });
+        var fromSpike = indexById(collectSpike(fromSeq));
+        var toSpike = indexById(collectSpike(toSeq));
+        if (!!fromSpike.spike !== !!toSpike.spike) changed = true;
+        if (changed) duration = PLAYBACK_CONFIG.transitionDuration;
+      }
+      return {
+        fromSeq: fromSeq,
+        toSeq: toSeq,
+        motions: motions,
+        duration: duration
+      };
+    }
+
+    function buildVideoSegments(frames, playable) {
+      var segments = [];
+      segments.push({
+        kind: 'hold',
+        seq: frames[playable[0]],
+        ms: playable.length === 1 ? VIDEO_EXPORT.holdFinalMs : VIDEO_EXPORT.holdFirstMs
+      });
+      for (var i = 0; i < playable.length - 1; i++) {
+        var plan = planSequenceMove(frames[playable[i]], frames[playable[i + 1]]);
+        if (plan.duration) segments.push({ kind: 'move', plan: plan, ms: plan.duration });
+        var last = i === playable.length - 2;
+        segments.push({
+          kind: 'hold',
+          seq: frames[playable[i + 1]],
+          ms: last ? VIDEO_EXPORT.holdFinalMs : VIDEO_EXPORT.holdBetweenMs
+        });
+      }
+      return segments;
+    }
+
+    function recordStrategyVideo(frames, playable, loaded, mimeType) {
+      var canvas = document.createElement('canvas');
+      canvas.width = VIDEO_EXPORT.width;
+      canvas.height = VIDEO_EXPORT.height;
+      var ctx = canvas.getContext('2d');
+      var mapImg = dom.minimapImage;
+      var mapSize = Math.min(canvas.width, canvas.height);
+      var originX = (canvas.width - mapSize) / 2;
+      var originY = (canvas.height - mapSize) / 2;
+      var flipped = !!mapView.flipped;
+      var segments = buildVideoSegments(frames, playable);
+      var total = 0;
+      segments.forEach(function(segment) { total += segment.ms; });
+      var session = {
+        active: true,
+        raf: 0,
+        canvas: canvas,
+        stream: null,
+        recorder: null
+      };
+
+      function mapPoint(nx, ny) {
+        var x = originX + nx * mapSize;
+        var y = originY + ny * mapSize;
+        if (flipped) x = originX + (1 - nx) * mapSize;
+        return { x: x, y: y };
+      }
+
+      function drawMap() {
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = VIDEO_EXPORT.background;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.save();
+        if (flipped) {
+          ctx.translate(originX + mapSize, originY);
+          ctx.scale(-1, 1);
+          ctx.drawImage(mapImg, 0, 0, mapSize, mapSize);
+        } else {
+          ctx.drawImage(mapImg, originX, originY, mapSize, mapSize);
+        }
+        ctx.restore();
+      }
+
+      function drawArrow(from, to, color, opacity) {
+        if (opacity <= 0) return;
+        var a = mapPoint(from.x, from.y);
+        var b = mapPoint(to.x, to.y);
+        ctx.save();
+        ctx.globalAlpha = opacity;
+        ctx.strokeStyle = color;
+        ctx.fillStyle = color;
+        ctx.lineWidth = Math.max(3, mapSize * 0.0045);
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+        drawArrowHead(ctx, a, b, color, Math.max(12, mapSize * 0.02));
+        ctx.restore();
+      }
+
+      function drawAbility(item, opacity) {
+        if (!item || opacity <= 0) return;
+        var p = mapPoint(item.x, item.y);
+        var size = Math.max(28, mapSize * 0.045);
+        ctx.save();
+        ctx.globalAlpha = opacity;
+        ctx.fillStyle = 'rgba(15, 25, 35, 0.9)';
+        ctx.strokeStyle = item.teamId === 'blue' ? '#5dade2' : '#ec7063';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.rect(p.x - size / 2, p.y - size / 2, size, size);
+        ctx.fill();
+        ctx.stroke();
+        var icon = iconBySrc(item.src, loaded);
+        if (icon) ctx.drawImage(icon, p.x - size * 0.38, p.y - size * 0.38, size * 0.76, size * 0.76);
+        ctx.restore();
+      }
+
+      function drawAgent(item, opacity) {
+        if (!item || opacity <= 0) return;
+        var p = mapPoint(item.x, item.y);
+        var radius = Math.max(16, mapSize * 0.028);
+        ctx.save();
+        ctx.globalAlpha = opacity;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+        ctx.fillStyle = item.teamId === 'blue' ? '#2980b9' : '#c0392b';
+        ctx.fill();
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+        ctx.stroke();
+        var icon = iconBySrc(agentIconSrc(item.character), loaded);
+        if (icon) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, radius - 2, 0, Math.PI * 2);
+          ctx.clip();
+          ctx.drawImage(icon, p.x - radius + 2, p.y - radius + 2, (radius - 2) * 2, (radius - 2) * 2);
+          ctx.restore();
+        }
+        ctx.restore();
+      }
+
+      function drawSpike(item, opacity) {
+        if (!item || opacity <= 0) return;
+        var icon = iconBySrc(SPIKE_ICON_SRC, loaded);
+        if (!icon) return;
+        var p = mapPoint(item.x, item.y);
+        var size = Math.max(26, mapSize * 0.04);
+        ctx.save();
+        ctx.globalAlpha = opacity;
+        ctx.drawImage(icon, p.x - size / 2, p.y - size / 2, size, size);
+        ctx.restore();
+      }
+
+      function lerpItem(fromItem, toItem, t) {
+        if (fromItem && toItem) {
+          return {
+            item: {
+              x: fromItem.x + (toItem.x - fromItem.x) * t,
+              y: fromItem.y + (toItem.y - fromItem.y) * t,
+              teamId: toItem.teamId,
+              src: toItem.src,
+              character: toItem.character
+            },
+            opacity: 1
+          };
+        }
+        if (toItem) return { item: toItem, opacity: t };
+        return { item: fromItem, opacity: 1 - t };
+      }
+
+      function agentAt(plan, id, t) {
+        var fromAgent = plan.fromAgents[id];
+        var toAgent = plan.toAgents[id];
+        for (var i = 0; i < plan.motions.length; i++) {
+          var motion = plan.motions[i];
+          if (motion.id !== id) continue;
+          var local = 1;
+          if (motion.duration && plan.duration) local = Math.min(1, (t * plan.duration) / motion.duration);
+          var point = pointAlongRoute(motion.path, motion.duration ? motion.length * local : motion.length);
+          return { item: { x: point.x, y: point.y, teamId: toAgent.teamId, character: toAgent.character }, opacity: 1 };
+        }
+        return lerpItem(fromAgent, toAgent, t);
+      }
+
+      function drawMove(plan, t) {
+        drawMap();
+        var seen = {};
+        Object.keys(plan.fromArrows).forEach(function(id) { seen[id] = plan.fromArrows[id]; });
+        Object.keys(plan.toArrows).forEach(function(id) { seen[id] = plan.toArrows[id]; });
+        Object.keys(seen).forEach(function(id) {
+          var fromArrow = plan.fromArrows[id];
+          var toArrow = plan.toArrows[id];
+          var sample = toArrow || fromArrow;
+          var origin = agentAt(plan, sample.sourceAgentId, t);
+          if (!origin.item) return;
+          var end = lerpItem(
+            fromArrow ? { x: fromArrow.endX, y: fromArrow.endY } : null,
+            toArrow ? { x: toArrow.endX, y: toArrow.endY } : null,
+            t
+          );
+          var opacity = origin.opacity * (fromArrow && toArrow ? 1 : (toArrow ? t : 1 - t));
+          drawArrow(origin.item, end.item, sample.teamId === 'blue' ? '#5dade2' : '#ec7063', opacity);
+        });
+        var abilityIds = {};
+        Object.keys(plan.fromAbilities).forEach(function(id) { abilityIds[id] = true; });
+        Object.keys(plan.toAbilities).forEach(function(id) { abilityIds[id] = true; });
+        Object.keys(abilityIds).forEach(function(id) {
+          var placed = lerpItem(plan.fromAbilities[id], plan.toAbilities[id], t);
+          drawAbility(placed.item, placed.opacity);
+        });
+        var spike = lerpItem(plan.fromSpike.spike, plan.toSpike.spike, t);
+        drawSpike(spike.item, spike.opacity);
+        var agentIds = {};
+        Object.keys(plan.fromAgents).forEach(function(id) { agentIds[id] = true; });
+        Object.keys(plan.toAgents).forEach(function(id) { agentIds[id] = true; });
+        Object.keys(agentIds).forEach(function(id) {
+          var placed = agentAt(plan, id, t);
+          drawAgent(placed.item, placed.opacity);
+        });
+      }
+
+      function drawHold(seq) {
+        drawMap();
+        collectRouteArrows(seq).forEach(function(arrow) {
+          drawArrow(
+            { x: arrow.x, y: arrow.y },
+            { x: arrow.endX, y: arrow.endY },
+            arrow.teamId === 'blue' ? '#5dade2' : '#ec7063',
+            1
+          );
+        });
+        collectAbilities(seq).forEach(function(ability) { drawAbility(ability, 1); });
+        collectSpike(seq).forEach(function(spike) { drawSpike(spike, 1); });
+        collectAgents(seq).forEach(function(agent) { drawAgent(agent, 1); });
+      }
+
+      function drawSegment(segment, t) {
+        if (segment.kind === 'hold') drawHold(segment.seq);
+        else {
+          var plan = segment.plan;
+          if (!plan.fromAgents) {
+            plan.fromAgents = indexById(collectAgents(plan.fromSeq));
+            plan.toAgents = indexById(collectAgents(plan.toSeq));
+            plan.fromAbilities = indexById(collectAbilities(plan.fromSeq));
+            plan.toAbilities = indexById(collectAbilities(plan.toSeq));
+            plan.fromArrows = indexById(collectRouteArrows(plan.fromSeq));
+            plan.toArrows = indexById(collectRouteArrows(plan.toSeq));
+            plan.fromSpike = indexById(collectSpike(plan.fromSeq));
+            plan.toSpike = indexById(collectSpike(plan.toSeq));
+          }
+          drawMove(plan, t);
+        }
+      }
+
+      function releaseRecording(recorder, stream) {
+        if (session.raf) cancelAnimationFrame(session.raf);
+        session.raf = 0;
+        session.active = false;
+        if (stream) stream.getTracks().forEach(function(track) { track.stop(); });
+        session.canvas = null;
+        session.stream = null;
+        session.recorder = null;
+        videoExport.running = false;
+        if (dom.downloadBtn) dom.downloadBtn.disabled = false;
+        if (recorder) {
+          recorder.ondataavailable = null;
+          recorder.onerror = null;
+          recorder.onstop = null;
+        }
+      }
+
+      drawSegment(segments[0], 0);
+      var stream;
+      var recorder;
+      try {
+        stream = canvas.captureStream(VIDEO_EXPORT.fps);
+        recorder = mimeType ? new MediaRecorder(stream, { mimeType: mimeType }) : new MediaRecorder(stream);
+      } catch (err) {
+        releaseRecording(null, stream);
+        setExportStatus('Video export is not supported in this browser.');
+        return;
+      }
+      session.stream = stream;
+      session.recorder = recorder;
+      var chunks = [];
+      recorder.ondataavailable = function(event) {
+        if (event.data && event.data.size) chunks.push(event.data);
+      };
+      recorder.onerror = function() {
+        chunks = [];
+        releaseRecording(recorder, stream);
+        setExportStatus('Could not export the strategy video.');
+      };
+      recorder.onstop = function() {
+        var blob = new Blob(chunks, { type: mimeType || 'video/webm' });
+        chunks = [];
+        if (!blob.size) {
+          releaseRecording(recorder, stream);
+          setExportStatus('Could not export the strategy video.');
+          return;
+        }
+        var url = URL.createObjectURL(blob);
+        var link = document.createElement('a');
+        link.href = url;
+        link.download = VIDEO_EXPORT.filename;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+        releaseRecording(recorder, stream);
+        setExportStatus('Video ready');
+        videoExport.statusTimer = window.setTimeout(function() { setExportStatus(''); }, 2000);
+      };
+      recorder.start(250);
+      var started = performance.now();
+      function frame(now) {
+        if (!session.active) return;
+        var elapsed = now - started;
+        var cursor = 0;
+        var segment = segments[segments.length - 1];
+        var local = 1;
+        for (var i = 0; i < segments.length; i++) {
+          if (elapsed < cursor + segments[i].ms || i === segments.length - 1) {
+            segment = segments[i];
+            local = segments[i].ms ? Math.min(1, Math.max(0, (elapsed - cursor) / segments[i].ms)) : 1;
+            break;
+          }
+          cursor += segments[i].ms;
+        }
+        drawSegment(segment, local);
+        if (elapsed >= total) {
+          session.active = false;
+          if (recorder.state === 'recording') recorder.stop();
+          return;
+        }
+        session.raf = requestAnimationFrame(frame);
+      }
+      session.raf = requestAnimationFrame(frame);
     }
 
     function minimapSrc(mapName) {
@@ -2579,8 +3028,13 @@ document.addEventListener("spikecoach-auth", function(event) {
         });
       }
 
+      dom.exportStatus = document.getElementById('strategyExportStatus');
+      dom.imageBtn = document.getElementById('strategyImageBtn');
       if (dom.downloadBtn) {
-        dom.downloadBtn.addEventListener('click', exportStrategyBoardPNG);
+        dom.downloadBtn.addEventListener('click', exportStrategyVideo);
+      }
+      if (dom.imageBtn) {
+        dom.imageBtn.addEventListener('click', exportStrategyBoardPNG);
       }
       if (dom.spikeSource) {
         dom.spikeSource.addEventListener('pointerdown', startSpikeTrayDrag);
