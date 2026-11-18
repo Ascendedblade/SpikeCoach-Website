@@ -161,11 +161,11 @@ document.addEventListener("spikecoach-auth", function(event) {
     var SPIKE_ICON_SRC = 'Other_images/Spike_nobg.png';
     var SEQUENCE_COUNT = 8;
     var PLAYBACK_CONFIG = {
-      transitionDuration: 1500,
+      transitionDuration: 3000,
       pauseDuration: 500,
-      minMoveDuration: 600,
-      maxMoveDuration: 2500,
-      moveMsPerUnit: 1800
+      minMoveDuration: 1200,
+      maxMoveDuration: 5000,
+      moveMsPerUnit: 3600
     };
     var VIDEO_EXPORT = {
       width: 1280,
@@ -180,7 +180,7 @@ document.addEventListener("spikecoach-auth", function(event) {
     };
     var videoExport = { running: false, statusTimer: 0 };
     var SMOKE_MARKER_CONFIG = {
-      diameterNormalized: 0.06,
+      diameterNormalized: 0.03,
       opacity: 0.74,
       omenOpacity: 0.84,
       iconBlue: '#6eb6ff',
@@ -243,7 +243,7 @@ document.addEventListener("spikecoach-auth", function(event) {
         thicknessRatio: 0.3,
         draggable: false,
         snapToNearbyMapBoundary: true,
-        defaultArmRatio: 0.05,
+        defaultArmRatio: 0.0425,
         boundaryThresholdRatio: 0.035
       }
     };
@@ -301,6 +301,53 @@ document.addEventListener("spikecoach-auth", function(event) {
 
     function smokeIconColor(teamId) {
       return teamId === 'red' ? SMOKE_MARKER_CONFIG.iconRed : SMOKE_MARKER_CONFIG.iconBlue;
+    }
+
+    function abilityTintColor(teamId) {
+      return teamId === 'red' ? '#ff4d4d' : '#3d8dff';
+    }
+
+    function decorateTeamAbilityIcon(el, src) {
+      if (!src || (smokeForAbility(src) && !el.classList.contains('strategy-ability-ghost'))) return;
+      var teamId = el.classList.contains('team-red') ? 'red' : 'blue';
+      el.classList.add('has-team-tint');
+      var tint = document.createElement('span');
+      tint.className = 'strategy-ability-tint';
+      tint.setAttribute('aria-hidden', 'true');
+      tint.style.backgroundColor = abilityTintColor(teamId);
+      tint.style.webkitMaskImage = 'url("' + src + '")';
+      tint.style.maskImage = 'url("' + src + '")';
+      el.appendChild(tint);
+    }
+
+    function syncDeadMark(el, dead) {
+      var mark = el.querySelector('.strategy-dead-mark');
+      if (!dead) {
+        el.classList.remove('is-dead');
+        if (mark) mark.remove();
+        return;
+      }
+      el.classList.add('is-dead');
+      if (mark) return;
+      mark = document.createElement('span');
+      mark.className = 'strategy-dead-mark';
+      mark.setAttribute('aria-hidden', 'true');
+      el.appendChild(mark);
+    }
+
+    function strokeDeadMark(ctx, x, y, radius) {
+      var arm = radius * 0.6;
+      ctx.save();
+      ctx.strokeStyle = '#ff2d2d';
+      ctx.lineWidth = Math.max(2, radius * 0.12);
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(x - arm, y - arm);
+      ctx.lineTo(x + arm, y + arm);
+      ctx.moveTo(x + arm, y - arm);
+      ctx.lineTo(x - arm, y + arm);
+      ctx.stroke();
+      ctx.restore();
     }
 
     function decorateSmokeMarker(el, src) {
@@ -621,8 +668,9 @@ document.addEventListener("spikecoach-auth", function(event) {
       var icon = iconBySrc(src, loaded);
       if (wallForAbility(src)) {
         if (icon) {
-          var iconPx = Math.max(32, mapSize * 0.056) * 0.74;
-          ctx.drawImage(icon, x - iconPx / 2, y - iconPx / 2, iconPx, iconPx);
+          var iconPx = Math.max(16, mapSize * 0.028) * 0.74;
+          var tintedWall = tintedSmokeIcon(icon, abilityTintColor(teamId));
+          ctx.drawImage(tintedWall, x - iconPx / 2, y - iconPx / 2, iconPx, iconPx);
         }
         return;
       }
@@ -643,7 +691,7 @@ document.addEventListener("spikecoach-auth", function(event) {
         }
         return;
       }
-      var size = Math.max(28, mapSize * 0.045);
+      var size = Math.max(14, mapSize * 0.0225);
       ctx.fillStyle = 'rgba(15, 25, 35, 0.9)';
       ctx.strokeStyle = teamId === 'blue' ? '#5dade2' : '#ec7063';
       ctx.lineWidth = 2;
@@ -651,7 +699,10 @@ document.addEventListener("spikecoach-auth", function(event) {
       ctx.rect(x - size / 2, y - size / 2, size, size);
       ctx.fill();
       ctx.stroke();
-      if (icon) ctx.drawImage(icon, x - size * 0.38, y - size * 0.38, size * 0.76, size * 0.76);
+      if (icon) {
+        var tinted = tintedSmokeIcon(icon, abilityTintColor(teamId));
+        ctx.drawImage(tinted, x - size * 0.38, y - size * 0.38, size * 0.76, size * 0.76);
+      }
     }
 
     function getAgentAbilities(agentId) {
@@ -707,8 +758,48 @@ document.addEventListener("spikecoach-auth", function(event) {
       clearMapSelection();
     }
 
+    var markerClick = null;
+
+    function noteMarkerPointerDown(teamId, slotIndex) {
+      if (!markerClick || markerClick.teamId !== teamId || markerClick.slotIndex !== slotIndex) return;
+      if (Date.now() - markerClick.at > 350) return;
+      markerClick.doubled = true;
+      clearTimeout(markerClick.timer);
+    }
+
+    function finishMarkerClick(teamId, slotIndex) {
+      if (markerClick && markerClick.doubled && markerClick.teamId === teamId && markerClick.slotIndex === slotIndex) {
+        markerClick = null;
+        toggleAgentDead(teamId, slotIndex);
+        return;
+      }
+      if (markerClick) clearTimeout(markerClick.timer);
+      var stamp = Date.now();
+      markerClick = {
+        teamId: teamId,
+        slotIndex: slotIndex,
+        at: stamp,
+        doubled: false,
+        timer: setTimeout(function() {
+          if (!markerClick || markerClick.at !== stamp || markerClick.doubled) return;
+          markerClick = null;
+          if (playback.running || state.drag) return;
+          toggleMapMarkerFocus(teamId, slotIndex);
+        }, 350)
+      };
+    }
+
+    function toggleAgentDead(teamId, slotIndex) {
+      if (playback.running) return;
+      var slot = getTeam(teamId).slots[slotIndex];
+      if (!slot || !slot.agentId || !slot.mapPos) return;
+      slot.dead = !slot.dead;
+      noteEdit();
+      syncMapScene();
+    }
+
     function createEmptySlot() {
-      return { instanceId: null, agentId: null, mapPos: null, abilityPlacements: [] };
+      return { instanceId: null, agentId: null, mapPos: null, abilityPlacements: [], dead: false };
     }
 
     function genMapItemId(prefix) {
@@ -798,6 +889,7 @@ document.addEventListener("spikecoach-auth", function(event) {
       var removedId = slot.instanceId;
       slot.mapPos = null;
       slot.abilityPlacements = [];
+      slot.dead = false;
       removeArrowsForAgent(removedId);
       if (state.mapSelection && state.mapSelection.type === 'agent' &&
           state.mapSelection.teamId === teamId && state.mapSelection.slotIndex === slotIndex) {
@@ -1095,6 +1187,7 @@ document.addEventListener("spikecoach-auth", function(event) {
       el.appendChild(img);
       decorateSmokeMarker(el, placement.src);
       decorateWallMarker(el, placement.src);
+      decorateTeamAbilityIcon(el, placement.src);
 
       el.addEventListener('pointerdown', function(e) {
         e.stopPropagation();
@@ -1124,8 +1217,9 @@ document.addEventListener("spikecoach-auth", function(event) {
       img.alt = slot.agentId;
       img.draggable = false;
       el.appendChild(img);
+      syncDeadMark(el, slot.dead);
 
-      el.title = 'Right-click and drag to draw an arrow.';
+      el.title = 'Right-click and drag to draw an arrow. Double-click to mark down.';
       el.addEventListener('pointerdown', function(e) {
         e.stopPropagation();
         if (e.button === 2) {
@@ -1195,28 +1289,10 @@ document.addEventListener("spikecoach-auth", function(event) {
         line.setAttribute('stroke', color);
         line.setAttribute('marker-end', 'url(#strategyArrowHead)');
 
-        var endCap = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-        endCap.setAttribute('class', 'strategy-arrow-end');
-        endCap.setAttribute('cx', arrow.endPct.x);
-        endCap.setAttribute('cy', arrow.endPct.y);
-        endCap.setAttribute('r', '1.4');
-        endCap.setAttribute('fill', color);
-
         function selectArrow() {
           state.mapSelection = { type: 'arrow', arrowId: arrow.id };
         }
         hit.addEventListener('pointerdown', function(e) {
-          e.stopPropagation();
-          if (e.button === 2) {
-            e.preventDefault();
-            removeArrow(arrow.id);
-            return;
-          }
-          if (e.button !== 0) return;
-          selectArrow();
-          startArrowEndDrag(e, arrow.id);
-        });
-        endCap.addEventListener('pointerdown', function(e) {
           e.stopPropagation();
           if (e.button === 2) {
             e.preventDefault();
@@ -1234,7 +1310,6 @@ document.addEventListener("spikecoach-auth", function(event) {
 
         g.appendChild(hit);
         g.appendChild(line);
-        g.appendChild(endCap);
         dom.arrowSvg.appendChild(g);
       });
     }
@@ -1247,6 +1322,7 @@ document.addEventListener("spikecoach-auth", function(event) {
       slot.agentId = agentId;
       slot.mapPos = null;
       slot.abilityPlacements = [];
+      slot.dead = false;
       noteEdit();
       closeAgentPicker();
       renderAllSlots();
@@ -1477,10 +1553,14 @@ document.addEventListener("spikecoach-auth", function(event) {
       }
       if (d.mode === 'marker') {
         if (d.moved) {
+          if (markerClick) {
+            clearTimeout(markerClick.timer);
+            markerClick = null;
+          }
           if (isInsideMapClient(e.clientX, e.clientY)) clearMapMarkerFocus();
           else removeAgentFromMap(d.teamId, d.slotIndex);
         } else {
-          toggleMapMarkerFocus(d.teamId, d.slotIndex);
+          finishMarkerClick(d.teamId, d.slotIndex);
         }
       }
       if (d.mode === 'ability-map') {
@@ -1569,6 +1649,7 @@ document.addEventListener("spikecoach-auth", function(event) {
       e.preventDefault();
       var slot = getTeam(teamId).slots[slotIndex];
       if (!slot.agentId || !slot.mapPos) return;
+      noteMarkerPointerDown(teamId, slotIndex);
 
       state.drag = {
         mode: 'marker',
@@ -1659,6 +1740,7 @@ document.addEventListener("spikecoach-auth", function(event) {
       ghost.className = 'strategy-drag-ghost strategy-ability-ghost team-' + teamId;
       ghost.innerHTML = '<img src="' + ability.src + '" alt="">';
       document.body.appendChild(ghost);
+      decorateTeamAbilityIcon(ghost, ability.src);
       ghost.style.left = e.clientX + 'px';
       ghost.style.top = e.clientY + 'px';
 
@@ -1927,6 +2009,7 @@ document.addEventListener("spikecoach-auth", function(event) {
               ctx.drawImage(icon, p.x - radius + 2, p.y - radius + 2, (radius - 2) * 2, (radius - 2) * 2);
               ctx.restore();
             }
+            if (slot.dead) strokeDeadMark(ctx, p.x, p.y, radius);
           });
         });
 
@@ -2200,6 +2283,7 @@ document.addEventListener("spikecoach-auth", function(event) {
           ctx.drawImage(icon, p.x - radius + 2, p.y - radius + 2, (radius - 2) * 2, (radius - 2) * 2);
           ctx.restore();
         }
+        if (item.dead) strokeDeadMark(ctx, p.x, p.y, radius);
         ctx.restore();
       }
 
@@ -2222,7 +2306,8 @@ document.addEventListener("spikecoach-auth", function(event) {
           teamId: toItem.teamId,
           src: toItem.src,
           character: toItem.character,
-          label: toItem.label
+          label: toItem.label,
+          dead: t < 0.5 ? !!fromItem.dead : !!toItem.dead
         };
         if (fromItem.wallEnd && toItem.wallEnd) {
           item.wallEnd = {
@@ -2263,7 +2348,7 @@ document.addEventListener("spikecoach-auth", function(event) {
           var local = 1;
           if (motion.duration && plan.duration) local = Math.min(1, (t * plan.duration) / motion.duration);
           var point = pointAlongRoute(motion.path, motion.duration ? motion.length * local : motion.length);
-          return { item: { x: point.x, y: point.y, teamId: toAgent.teamId, character: toAgent.character }, opacity: 1 };
+          return { item: { x: point.x, y: point.y, teamId: toAgent.teamId, character: toAgent.character, dead: local < 0.5 ? !!(fromAgent && fromAgent.dead) : !!toAgent.dead }, opacity: 1 };
         }
         return lerpItem(fromAgent, toAgent, t);
       }
@@ -2672,6 +2757,7 @@ document.addEventListener("spikecoach-auth", function(event) {
             id: slot.instanceId,
             teamId: teamId,
             character: slot.agentId,
+            dead: !!slot.dead,
             x: slot.mapPos.x,
             y: slot.mapPos.y
           });
@@ -2962,6 +3048,7 @@ document.addEventListener("spikecoach-auth", function(event) {
       el.appendChild(img);
       decorateSmokeMarker(el, item.src);
       decorateWallMarker(el, item.src);
+      decorateTeamAbilityIcon(el, item.src);
       return el;
     }
 
@@ -2995,6 +3082,7 @@ document.addEventListener("spikecoach-auth", function(event) {
           el.firstChild.src = agentIconSrc(next.character);
           el.className = 'strategy-play-marker strategy-play-agent team-' + next.teamId;
         }
+        if (kind === 'agent') syncDeadMark(el, next.dead);
         if (prev && animate && !holdPosition) {
           placePlayMarker(el, prev.x, prev.y, false);
           el.style.opacity = '1';
@@ -3140,7 +3228,7 @@ document.addEventListener("spikecoach-auth", function(event) {
         if (!group) {
           group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
           group.setAttribute('data-play-wall', id);
-          group.style.transition = 'opacity var(--strategy-move, 1500ms) linear';
+          group.style.transition = 'opacity var(--strategy-move, 3000ms) linear';
           for (var i = 0; i < count; i++) {
             var line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
             line.setAttribute('stroke', config.color);
@@ -3272,7 +3360,7 @@ document.addEventListener("spikecoach-auth", function(event) {
           line.setAttribute('class', 'strategy-arrow-line');
           line.setAttribute('stroke', next.teamId === 'blue' ? '#5dade2' : '#ec7063');
           line.setAttribute('marker-end', 'url(#strategyArrowHead)');
-          line.style.transition = 'opacity var(--strategy-move, 1500ms) linear';
+          line.style.transition = 'opacity var(--strategy-move, 3000ms) linear';
           arrowSvg.appendChild(line);
         }
         var fromEnd = prev ? { x: prev.endX, y: prev.endY } : { x: next.endX, y: next.endY };
@@ -3297,7 +3385,7 @@ document.addEventListener("spikecoach-auth", function(event) {
           line.setAttribute('data-play-arrow', id);
           line.setAttribute('class', 'strategy-arrow-line');
           line.setAttribute('stroke', prev.teamId === 'blue' ? '#5dade2' : '#ec7063');
-          line.style.transition = 'opacity var(--strategy-move, 1500ms) linear';
+          line.style.transition = 'opacity var(--strategy-move, 3000ms) linear';
           arrowSvg.appendChild(line);
         }
         arrowAnims.push({
