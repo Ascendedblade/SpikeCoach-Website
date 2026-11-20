@@ -2656,6 +2656,31 @@ a.btn-primary:hover {
   stroke-dasharray: 1.2 0.8;
 }
 
+.strategy-move-aim,
+.strategy-move-play {
+  stroke-width: 0.42;
+  fill: none;
+  pointer-events: none;
+  stroke-linecap: round;
+}
+
+.strategy-move-notice {
+  margin: 0.35rem 0 0;
+  color: #f0d78c;
+  font-size: 0.85rem;
+}
+
+.strategy-move-notice[hidden] {
+  display: none;
+}
+
+.strategy-ability-cast {
+  stroke-width: 0.45;
+  fill: none;
+  pointer-events: none;
+  stroke-dasharray: 1.4 0.9;
+}
+
 .strategy-arrow-end {
   pointer-events: all;
   cursor: grab;
@@ -2836,10 +2861,20 @@ a.btn-primary:hover {
 
 .strategy-ability-map-marker.is-smoke,
 .strategy-play-ability.is-smoke {
+  width: 51px;
+  height: 51px;
   background: transparent;
   border: none;
   border-radius: 50%;
   box-shadow: none;
+}
+
+.strategy-ability-map-marker.is-move,
+.strategy-play-ability.is-move {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  z-index: 6;
 }
 
 .strategy-ability-map-marker.is-wall,
@@ -2863,7 +2898,7 @@ a.btn-primary:hover {
   inset: 0;
   border-radius: 50%;
   background: var(--smoke-fill);
-  border: 2px solid var(--smoke-border);
+  border: 3px solid var(--smoke-border);
   pointer-events: none;
   z-index: 0;
 }
@@ -3164,6 +3199,13 @@ a.btn-primary:hover {
 
 .strategy-play-marker.is-instant {
   transition: none;
+}
+
+.strategy-play-agent.is-enter {
+  transition:
+    left var(--strategy-move, 3000ms) linear,
+    top var(--strategy-move, 3000ms) linear,
+    opacity calc(var(--strategy-move, 3000ms) / 8) linear;
 }
 
 .strategy-play-marker.team-blue {

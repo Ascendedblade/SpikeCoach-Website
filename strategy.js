@@ -154,6 +154,7 @@ document.addEventListener("spikecoach-auth", function(event) {
       mapSelection: null,
       arrows: [],
       spike: null,
+      movements: [],
       drag: null,
       wallTool: null,
       wallLength: null
@@ -166,8 +167,30 @@ document.addEventListener("spikecoach-auth", function(event) {
       minMoveDuration: 1200,
       maxMoveDuration: 5000,
       moveMsPerUnit: 3600,
-      arrowSpeed: 1.5
+      arrowSpeed: 1.5,
+      enterFadeScale: 8
     };
+    var MOVEMENT_RING_DIAMETERS = 1.15;
+    var AGENT_MARKER_PX = 38;
+    var MOVEMENT_ABILITY_CONFIG = {
+      'Agent_Abilities/Jett/ADD6443A-41BD-E414-F6AD-E58D267F4E95_Ability2.png': {
+        type: 'jett-dash',
+        agentId: 'Jett',
+        verb: 'Dash',
+        distanceRatio: 0.06,
+        durationMs: 280,
+        ringDiameters: MOVEMENT_RING_DIAMETERS
+      },
+      'Agent_Abilities/Neon/BB2A4828-46EB-8CD1-E765-15848195D751_Ability2.png': {
+        type: 'neon-slide',
+        agentId: 'Neon',
+        verb: 'Slide',
+        distanceRatio: 0.09,
+        durationMs: 420,
+        ringDiameters: MOVEMENT_RING_DIAMETERS
+      }
+    };
+    var moveNoticeTimer = 0;
     var VIDEO_EXPORT = {
       width: 1280,
       height: 720,
@@ -663,6 +686,14 @@ document.addEventListener("spikecoach-auth", function(event) {
       return canvas;
     }
 
+    function paintMovementIcon(ctx, src, x, y, mapSize, loaded, teamId) {
+      var icon = iconBySrc(src, loaded);
+      if (!icon) return;
+      var iconPx = Math.max(32, mapSize * 0.056) * 0.8;
+      var tinted = tintedSmokeIcon(icon, abilityTintColor(teamId));
+      ctx.drawImage(tinted, x - iconPx / 2, y - iconPx / 2, iconPx, iconPx);
+    }
+
     function paintAbilityMarker(ctx, src, x, y, mapSize, loaded, teamId) {
       var smoke = smokeForAbility(src);
       var icon = iconBySrc(src, loaded);
@@ -676,12 +707,12 @@ document.addEventListener("spikecoach-auth", function(event) {
       }
       if (smoke) {
         var alpha = smoke.agentId === 'Omen' ? SMOKE_MARKER_CONFIG.omenOpacity : SMOKE_MARKER_CONFIG.opacity;
-        var radius = Math.max(32, mapSize * 0.056) * 0.4;
+        var radius = Math.max(32, mapSize * 0.056) * 0.4 * 1.7;
         ctx.beginPath();
         ctx.arc(x, y, radius, 0, Math.PI * 2);
         ctx.fillStyle = smokeCssColor(smoke.fill, alpha);
         ctx.fill();
-        ctx.lineWidth = Math.max(2, mapSize * 0.0035);
+        ctx.lineWidth = Math.max(2, mapSize * 0.0035) * 1.7;
         ctx.strokeStyle = smokeCssColor(smoke.border, 0.92);
         ctx.stroke();
         if (icon) {
@@ -891,6 +922,7 @@ document.addEventListener("spikecoach-auth", function(event) {
       slot.abilityPlacements = [];
       slot.dead = false;
       removeArrowsForAgent(removedId);
+      removeMovementsForAgent(removedId);
       if (state.mapSelection && state.mapSelection.type === 'agent' &&
           state.mapSelection.teamId === teamId && state.mapSelection.slotIndex === slotIndex) {
         clearMapSelection();
@@ -922,6 +954,11 @@ document.addEventListener("spikecoach-auth", function(event) {
       else if (sel.type === 'ability') removeAbilityFromMap(sel.teamId, sel.slotIndex, sel.abilityId);
       else if (sel.type === 'team-slot') clearSlot(sel.teamId, sel.slotIndex);
       else if (sel.type === 'arrow') removeArrow(sel.arrowId);
+      else if (sel.type === 'movement') {
+        removeMovement(sel.movementId);
+        noteEdit();
+        syncMapScene();
+      }
     }
 
     function isEditableTarget(el) {
@@ -940,9 +977,148 @@ document.addEventListener("spikecoach-auth", function(event) {
       state.teams = { blue: createEmptyTeamState(), red: createEmptyTeamState() };
       state.arrows = [];
       state.spike = null;
+      state.movements = [];
       state.wallTool = null;
       state.wallLength = null;
       clearMapSelection();
+    }
+
+    function movementAbilityFor(src) {
+      return src ? MOVEMENT_ABILITY_CONFIG[src] || null : null;
+    }
+
+    function movementConfigByType(type) {
+      var match = null;
+      Object.keys(MOVEMENT_ABILITY_CONFIG).forEach(function(src) {
+        if (MOVEMENT_ABILITY_CONFIG[src].type === type) match = MOVEMENT_ABILITY_CONFIG[src];
+      });
+      return match;
+    }
+
+    function showMoveNotice(message) {
+      if (!dom.moveNotice) return;
+      window.clearTimeout(moveNoticeTimer);
+      dom.moveNotice.hidden = !message;
+      dom.moveNotice.textContent = message || '';
+      if (!message) return;
+      moveNoticeTimer = window.setTimeout(function() {
+        dom.moveNotice.hidden = true;
+      }, 2600);
+    }
+
+    function pruneMovements(list, teams) {
+      return (list || []).filter(function(action) {
+        var cfg = movementConfigByType(action.type);
+        var slot = findSlotByInstanceId(action.sourceAgentId, teams);
+        if (!cfg || !slot || !slot.agentId || !slot.mapPos) return false;
+        if (slot.agentId !== cfg.agentId) return false;
+        return typeof action.angle === 'number';
+      });
+    }
+
+    function removeMovementsForAgent(instanceId) {
+      if (!instanceId) return;
+      state.movements = (state.movements || []).filter(function(action) {
+        return action.sourceAgentId !== instanceId;
+      });
+    }
+
+    function removeMovement(id) {
+      state.movements = (state.movements || []).filter(function(action) { return action.id !== id; });
+      if (state.mapSelection && state.mapSelection.type === 'movement' && state.mapSelection.movementId === id) {
+        state.mapSelection = null;
+      }
+    }
+
+    function movementRingRadiusPct() {
+      var layout = dom.mapContent && dom.mapContent.offsetWidth ? dom.mapContent.offsetWidth : 760;
+      return (AGENT_MARKER_PX * MOVEMENT_RING_DIAMETERS / layout) * 100;
+    }
+
+    function movementRingUnit() {
+      return movementRingRadiusPct() / 100;
+    }
+
+    function movementPoint(agentPct, angle, radiusPct) {
+      var radius = radiusPct == null ? movementRingRadiusPct() : radiusPct;
+      return {
+        x: agentPct.x + Math.cos(angle) * radius,
+        y: agentPct.y + Math.sin(angle) * radius
+      };
+    }
+
+    function movementAngle(agentPct, clientX, clientY) {
+      var surface = dom.mapContent || dom.minimapContainer;
+      var rect = surface ? surface.getBoundingClientRect() : null;
+      if (!agentPct || !rect || !rect.width || !rect.height) return 0;
+      var x = ((clientX - rect.left) / rect.width) * 100;
+      var y = ((clientY - rect.top) / rect.height) * 100;
+      if (mapView.flipped) x = 100 - x;
+      var dx = x - agentPct.x;
+      var dy = y - agentPct.y;
+      if (Math.hypot(dx, dy) < 0.2) return 0;
+      return Math.atan2(dy, dx);
+    }
+
+    function movementActions(seq) {
+      if (!seq) return [];
+      return pruneMovements(seq.movements || [], seq.teams);
+    }
+
+    function actionForAgent(seq, agentId) {
+      var found = null;
+      movementActions(seq).forEach(function(action) {
+        if (action.sourceAgentId === agentId) found = action;
+      });
+      return found;
+    }
+
+    function movementEndpoint(agent, action) {
+      var cfg = action && movementConfigByType(action.type);
+      if (!agent || !cfg) return agent ? { x: agent.x, y: agent.y } : null;
+      return {
+        x: clampUnit(agent.x + Math.cos(action.angle) * cfg.distanceRatio),
+        y: clampUnit(agent.y + Math.sin(action.angle) * cfg.distanceRatio)
+      };
+    }
+
+    function shiftedAgent(seq, agent) {
+      if (!agent) return agent;
+      var action = actionForAgent(seq, agent.id);
+      if (!action) return agent;
+      var end = movementEndpoint(agent, action);
+      return Object.assign({}, agent, end);
+    }
+
+    function movementPlan(seq) {
+      var gone = departedAgentIds(seq);
+      var agents = indexById(collectAgents(seq));
+      var moves = [];
+      var duration = 0;
+      movementActions(seq).forEach(function(action) {
+        if (gone[action.sourceAgentId]) return;
+        var agent = agents[action.sourceAgentId];
+        var cfg = movementConfigByType(action.type);
+        if (!agent || !cfg) return;
+        var end = movementEndpoint(agent, action);
+        var length = Math.hypot(end.x - agent.x, end.y - agent.y);
+        if (!cfg.durationMs || length < 0.0001) return;
+        moves.push({
+          id: agent.id,
+          actionId: action.id,
+          type: action.type,
+          src: action.src,
+          label: action.label,
+          teamId: action.teamId,
+          angle: action.angle,
+          path: [{ x: agent.x, y: agent.y }, { x: end.x, y: end.y }],
+          length: length,
+          duration: cfg.durationMs,
+          end: end
+        });
+        if (cfg.durationMs > duration) duration = cfg.durationMs;
+      });
+      return { moves: moves, duration: duration };
     }
 
     function clampMapPct(n) {
@@ -1062,6 +1238,7 @@ document.addEventListener("spikecoach-auth", function(event) {
       }
       syncArrows();
       syncWalls();
+      syncMovements();
     }
 
     function buildSpikeMapMarker(spike) {
@@ -1146,7 +1323,10 @@ document.addEventListener("spikecoach-auth", function(event) {
         btn.type = 'button';
         btn.className = 'strategy-ability-btn';
         var wallAbility = wallForAbility(ability.src);
-        btn.title = wallAbility && wallAbility.draggable
+        var moveAbility = movementAbilityFor(ability.src);
+        btn.title = moveAbility
+          ? ability.label + ' · drag around ' + moveAbility.agentId + ' to set ' + moveAbility.verb + ' direction'
+          : wallAbility && wallAbility.draggable
           ? ability.label + ' · drag onto the map, then drag to set the length'
           : ability.label + ' · drag onto the map';
         btn.dataset.abilitySrc = ability.src;
@@ -1314,10 +1494,181 @@ document.addEventListener("spikecoach-auth", function(event) {
       });
     }
 
+    function repositionMovement(action) {
+      var agent = agentPercent(action.sourceAgentId);
+      if (!agent) return;
+      var pos = movementPoint(agent, action.angle);
+      var el = dom.entitiesLayer && dom.entitiesLayer.querySelector('[data-movement-id="' + action.id + '"]');
+      if (el) {
+        el.style.left = pos.x + '%';
+        el.style.top = pos.y + '%';
+      }
+      var line = dom.arrowSvg && dom.arrowSvg.querySelector('[data-movement-line="' + action.id + '"]');
+      if (line) {
+        line.setAttribute('x1', agent.x);
+        line.setAttribute('y1', agent.y);
+        line.setAttribute('x2', pos.x);
+        line.setAttribute('y2', pos.y);
+      }
+    }
+
+    function syncMovements() {
+      if (!dom.entitiesLayer || !dom.arrowSvg) return;
+      state.movements = pruneMovements(state.movements, state.teams);
+      dom.arrowSvg.querySelectorAll('.strategy-move-aim').forEach(function(node) { node.remove(); });
+      state.movements.forEach(function(action) {
+        var agent = agentPercent(action.sourceAgentId);
+        var slot = findSlotByInstanceId(action.sourceAgentId);
+        if (!agent || !slot) return;
+        var teamId = action.teamId;
+        var slotIndex = -1;
+        getTeam(teamId).slots.forEach(function(item, index) {
+          if (item.instanceId === action.sourceAgentId) slotIndex = index;
+        });
+        var pos = movementPoint(agent, action.angle);
+        var el = document.createElement('div');
+        var selected = state.mapSelection && state.mapSelection.type === 'movement' && state.mapSelection.movementId === action.id;
+        el.className = 'strategy-ability-map-marker team-' + teamId + ' is-move' + (selected ? ' is-selected' : '');
+        el.style.left = pos.x + '%';
+        el.style.top = pos.y + '%';
+        el.dataset.movementId = action.id;
+        el.title = (action.label || 'Ability') + ' · drag around the agent to set direction · drag off the map to remove';
+        var img = document.createElement('img');
+        img.src = action.src;
+        img.alt = action.label || '';
+        img.draggable = false;
+        el.appendChild(img);
+        decorateTeamAbilityIcon(el, action.src);
+        el.addEventListener('pointerdown', function(e) {
+          e.stopPropagation();
+          if (e.button === 2) {
+            e.preventDefault();
+            removeMovement(action.id);
+            noteEdit();
+            syncMapScene();
+            return;
+          }
+          if (e.button !== 0) return;
+          startMovementAim(e, teamId, slotIndex, { src: action.src, label: action.label }, action.id);
+        });
+        el.addEventListener('contextmenu', function(e) {
+          e.preventDefault();
+          e.stopPropagation();
+        });
+        dom.entitiesLayer.appendChild(el);
+
+        var line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        line.setAttribute('class', 'strategy-move-aim');
+        line.setAttribute('data-movement-line', action.id);
+        line.setAttribute('stroke', teamId === 'blue' ? '#5dade2' : '#ec7063');
+        line.setAttribute('x1', agent.x);
+        line.setAttribute('y1', agent.y);
+        line.setAttribute('x2', pos.x);
+        line.setAttribute('y2', pos.y);
+        dom.arrowSvg.appendChild(line);
+      });
+    }
+
+    function updateMovementPreview(d) {
+      var agent = agentPercent(d.sourceAgentId);
+      if (!agent || !dom.entitiesLayer || !dom.arrowSvg) return;
+      var pos = movementPoint(agent, d.angle);
+      if (!d.previewIcon) {
+        d.previewIcon = document.createElement('div');
+        d.previewIcon.className = 'strategy-ability-map-marker team-' + d.teamId + ' is-move';
+        d.previewIcon.innerHTML = '<img src="' + d.ability.src + '" alt="" draggable="false">';
+        decorateTeamAbilityIcon(d.previewIcon, d.ability.src);
+        dom.entitiesLayer.appendChild(d.previewIcon);
+      }
+      d.previewIcon.style.left = pos.x + '%';
+      d.previewIcon.style.top = pos.y + '%';
+      if (!d.previewLine) {
+        d.previewLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        d.previewLine.setAttribute('class', 'strategy-move-aim strategy-move-preview');
+        d.previewLine.setAttribute('stroke', d.teamId === 'blue' ? '#5dade2' : '#ec7063');
+        dom.arrowSvg.appendChild(d.previewLine);
+      }
+      d.previewLine.setAttribute('x1', agent.x);
+      d.previewLine.setAttribute('y1', agent.y);
+      d.previewLine.setAttribute('x2', pos.x);
+      d.previewLine.setAttribute('y2', pos.y);
+    }
+
+    function commitMovement(d) {
+      var cfg = d.cfg;
+      if (!cfg || !d.sourceAgentId) return;
+      var existing = null;
+      (state.movements || []).forEach(function(action) {
+        if (action.sourceAgentId === d.sourceAgentId && action.type === cfg.type) existing = action;
+      });
+      if (!existing) {
+        existing = {
+          id: genMapItemId('movement'),
+          type: cfg.type,
+          sourceAgentId: d.sourceAgentId,
+          src: d.ability.src,
+          label: d.ability.label,
+          teamId: d.teamId,
+          angle: d.angle
+        };
+        state.movements.push(existing);
+      } else {
+        existing.angle = d.angle;
+        existing.src = d.ability.src;
+        existing.label = d.ability.label;
+        existing.teamId = d.teamId;
+      }
+      d.actionId = existing.id;
+    }
+
+    function startMovementAim(e, teamId, slotIndex, ability, existingId) {
+      if (playback.running) return;
+      e.preventDefault();
+      var cfg = movementAbilityFor(ability.src);
+      var slot = getTeam(teamId).slots[slotIndex];
+      if (!cfg || !slot || slot.agentId !== cfg.agentId || !slot.mapPos || !slot.instanceId) {
+        var name = cfg ? cfg.agentId : 'the agent';
+        var verb = cfg ? cfg.verb : 'movement';
+        showMoveNotice('Place ' + name + ' first to set ' + verb + ' direction.');
+        return;
+      }
+      var existing = null;
+      (state.movements || []).forEach(function(action) {
+        if (action.id === existingId || (action.sourceAgentId === slot.instanceId && action.type === cfg.type)) existing = action;
+      });
+      if (existing && dom.entitiesLayer) {
+        var hidden = dom.entitiesLayer.querySelector('[data-movement-id="' + existing.id + '"]');
+        if (hidden) hidden.style.visibility = 'hidden';
+        var hiddenLine = dom.arrowSvg.querySelector('[data-movement-line="' + existing.id + '"]');
+        if (hiddenLine) hiddenLine.style.visibility = 'hidden';
+      }
+      var angle = existing ? existing.angle : movementAngle(slot.mapPos, e.clientX, e.clientY);
+      state.drag = {
+        mode: 'movement-aim',
+        teamId: teamId,
+        slotIndex: slotIndex,
+        ability: ability,
+        cfg: cfg,
+        actionId: existing ? existing.id : null,
+        sourceAgentId: slot.instanceId,
+        fromMarker: !!existingId,
+        angle: angle,
+        startX: e.clientX,
+        startY: e.clientY,
+        moved: false,
+        saved: false
+      };
+      updateMovementPreview(state.drag);
+      document.addEventListener('pointermove', onDragMove);
+      document.addEventListener('pointerup', onDragEnd);
+      document.addEventListener('pointercancel', onDragEnd);
+    }
+
     function setSlotAgent(teamId, slotIndex, agentId) {
       if (playback.running) return;
       var slot = getTeam(teamId).slots[slotIndex];
       removeArrowsForAgent(slot.instanceId);
+      removeMovementsForAgent(slot.instanceId);
       slot.instanceId = genMapItemId('agent');
       slot.agentId = agentId;
       slot.mapPos = null;
@@ -1335,6 +1686,7 @@ document.addEventListener("spikecoach-auth", function(event) {
         clearMapSelection();
       }
       removeArrowsForAgent(getTeam(teamId).slots[slotIndex].instanceId);
+      removeMovementsForAgent(getTeam(teamId).slots[slotIndex].instanceId);
       getTeam(teamId).slots[slotIndex] = createEmptySlot();
       noteEdit();
       closeAgentPicker();
@@ -1431,6 +1783,15 @@ document.addEventListener("spikecoach-auth", function(event) {
           d.groupEl.style.top = pos.y + '%';
         }
         syncArrows();
+        (state.movements || []).forEach(function(action) {
+          if (action.sourceAgentId === slot.instanceId) repositionMovement(action);
+        });
+      }
+      if (d.mode === 'movement-aim') {
+        var aimAgent = agentPercent(d.sourceAgentId);
+        if (!aimAgent) return;
+        d.angle = movementAngle(aimAgent, e.clientX, e.clientY);
+        updateMovementPreview(d);
       }
       if (d.mode === 'ability-map') {
         if (!isInsideMapClient(e.clientX, e.clientY)) return;
@@ -1506,6 +1867,18 @@ document.addEventListener("spikecoach-auth", function(event) {
             clearSlot(d.teamId, d.slotIndex);
           }
         }
+      }
+      if (d.mode === 'movement-aim') {
+        var drop = true;
+        if (d.fromMarker && d.moved && !isInsideMapClient(e.clientX, e.clientY)) {
+          removeMovement(d.actionId);
+          drop = false;
+        } else if (!d.fromMarker && !d.moved && !d.actionId) {
+          d.angle = 0;
+        }
+        if (drop) commitMovement(d);
+        d.saved = true;
+        syncMapScene();
       }
       if (d.mode === 'ability-tray') {
         if (d.moved && d.trayButton) d.trayButton.dataset.suppressClick = '1';
@@ -1731,6 +2104,10 @@ document.addEventListener("spikecoach-auth", function(event) {
 
     function startAbilityTrayDrag(e, teamId, slotIndex, ability, trayButton) {
       if (playback.running) return;
+      if (movementAbilityFor(ability.src)) {
+        startMovementAim(e, teamId, slotIndex, ability, null);
+        return;
+      }
       e.preventDefault();
       var slot = getTeam(teamId).slots[slotIndex];
       if (!slot.mapPos) return;
@@ -1872,7 +2249,8 @@ document.addEventListener("spikecoach-auth", function(event) {
             touched: !!sequenceTouched[index],
             teams: seq.teams,
             arrows: seq.arrows,
-            spike: seq.spike
+            spike: seq.spike,
+            movements: seq.movements || []
           };
         })
       };
@@ -1929,6 +2307,7 @@ document.addEventListener("spikecoach-auth", function(event) {
           (slot.abilityPlacements || []).forEach(function(placement) { queue(placement.src); });
         });
       });
+      (state.movements || []).forEach(function(action) { queue(action.src); });
       if (state.spike) queue(SPIKE_ICON_SRC);
 
       Promise.all(sources.map(loadExportImage)).then(function(loaded) {
@@ -2011,6 +2390,23 @@ document.addEventListener("spikecoach-auth", function(event) {
             }
             if (slot.dead) strokeDeadMark(ctx, p.x, p.y, radius);
           });
+        });
+
+        var exportRing = exportAgentDiameter(canvas.width) * MOVEMENT_RING_DIAMETERS * 100;
+        (state.movements || []).forEach(function(action) {
+          var origin = agentPercent(action.sourceAgentId);
+          if (!origin) return;
+          var iconAt = movementPoint(origin, action.angle, exportRing);
+          var a = point(origin);
+          var b = point(iconAt);
+          ctx.strokeStyle = action.teamId === 'blue' ? '#5dade2' : '#ec7063';
+          ctx.lineWidth = Math.max(2, canvas.width * 0.003);
+          ctx.lineCap = 'round';
+          ctx.beginPath();
+          ctx.moveTo(a.x, a.y);
+          ctx.lineTo(b.x, b.y);
+          ctx.stroke();
+          paintMovementIcon(ctx, action.src, b.x, b.y, canvas.width, loaded, action.teamId);
         });
 
         if (state.spike && state.spike.mapPos) {
@@ -2102,6 +2498,7 @@ document.addEventListener("spikecoach-auth", function(event) {
       playable.forEach(function(index) {
         collectAgents(frames[index]).forEach(function(agent) { queue(agentIconSrc(agent.character)); });
         collectAbilities(frames[index]).forEach(function(ability) { queue(ability.src); });
+        movementActions(frames[index]).forEach(function(action) { queue(action.src); });
         if (collectSpike(frames[index]).length) queue(SPIKE_ICON_SRC);
       });
 
@@ -2123,7 +2520,7 @@ document.addEventListener("spikecoach-auth", function(event) {
       var gone = departedAgentIds(fromSeq);
       Object.keys(toAgents).forEach(function(id) {
         if (!fromAgents[id] || gone[id]) return;
-        var path = routeBetween(fromAgents[id], toAgents[id]);
+        var path = routeBetween(shiftedAgent(fromSeq, fromAgents[id]), toAgents[id]);
         var length = routeLength(path);
         var moveTime = moveDuration(length);
         motions.push({
@@ -2166,6 +2563,11 @@ document.addEventListener("spikecoach-auth", function(event) {
         if (!follow.duration) return;
         segments.push({ kind: 'arrow', seq: seq, moves: follow.moves, ms: follow.duration });
       }
+      function pushMovement(seq) {
+        var follow = movementPlan(seq);
+        if (!follow.duration) return;
+        segments.push({ kind: 'movement', seq: seq, moves: follow.moves, ms: follow.duration });
+      }
       var first = frames[playable[0]];
       var only = playable.length === 1;
       segments.push({
@@ -2174,6 +2576,7 @@ document.addEventListener("spikecoach-auth", function(event) {
         ms: only ? VIDEO_EXPORT.holdFinalMs : VIDEO_EXPORT.holdFirstMs
       });
       pushArrow(first);
+      pushMovement(first);
       for (var i = 0; i < playable.length - 1; i++) {
         var fromSeq = frames[playable[i]];
         var toSeq = frames[playable[i + 1]];
@@ -2186,6 +2589,7 @@ document.addEventListener("spikecoach-auth", function(event) {
           ms: last ? VIDEO_EXPORT.holdFinalMs : VIDEO_EXPORT.holdBetweenMs
         });
         pushArrow(toSeq);
+        pushMovement(toSeq);
       }
       return segments;
     }
@@ -2249,6 +2653,21 @@ document.addEventListener("spikecoach-auth", function(event) {
         ctx.lineTo(b.x, b.y);
         ctx.stroke();
         drawArrowHead(ctx, a, b, color, Math.max(12, mapSize * 0.02));
+        ctx.restore();
+      }
+
+      function drawCastLine(from, to, color) {
+        if (!from || !to) return;
+        var a = mapPoint(from.x, from.y);
+        var b = mapPoint(to.x, to.y);
+        ctx.save();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = Math.max(2, mapSize * 0.003);
+        ctx.setLineDash([10, 7]);
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
         ctx.restore();
       }
 
@@ -2362,7 +2781,9 @@ document.addEventListener("spikecoach-auth", function(event) {
           var point = pointAlongRoute(motion.path, motion.duration ? motion.length * local : motion.length);
           return { item: { x: point.x, y: point.y, teamId: toAgent.teamId, character: toAgent.character, dead: local < 0.5 ? !!(fromAgent && fromAgent.dead) : !!toAgent.dead }, opacity: 1 };
         }
-        return lerpItem(fromAgent, toAgent, t);
+        var placed = lerpItem(fromAgent, toAgent, t);
+        if (!fromAgent && toAgent) placed.opacity = Math.min(1, t * PLAYBACK_CONFIG.enterFadeScale);
+        return placed;
       }
 
       function drawMove(plan, t) {
@@ -2388,7 +2809,37 @@ document.addEventListener("spikecoach-auth", function(event) {
         Object.keys(plan.fromAbilities).forEach(function(id) { abilityIds[id] = true; });
         Object.keys(plan.toAbilities).forEach(function(id) { abilityIds[id] = true; });
         Object.keys(abilityIds).forEach(function(id) {
-          var placed = lerpItem(plan.fromAbilities[id], plan.toAbilities[id], t);
+          var fromItem = plan.fromAbilities[id];
+          var toItem = plan.toAbilities[id];
+          if (!fromItem && toItem) {
+            var launch = abilityLaunchPoint(toItem, plan.fromAgents[toItem.sourceAgentId]);
+            var dx = launch.x - toItem.x;
+            var dy = launch.y - toItem.y;
+            var item = {
+              x: launch.x + (toItem.x - launch.x) * t,
+              y: launch.y + (toItem.y - launch.y) * t,
+              teamId: toItem.teamId,
+              src: toItem.src,
+              label: toItem.label
+            };
+            if (toItem.wallEnd) {
+              item.wallEnd = {
+                x: toItem.wallEnd.x + dx * (1 - t),
+                y: toItem.wallEnd.y + dy * (1 - t)
+              };
+            }
+            if (toItem.wallArms) {
+              item.wallArms = toItem.wallArms.map(function(point) {
+                return { x: point.x + dx * (1 - t), y: point.y + dy * (1 - t) };
+              });
+            }
+            var live = agentAt(plan, toItem.sourceAgentId, t);
+            var lineStart = live && live.item ? live.item : launch;
+            drawCastLine(lineStart, item, toItem.teamId === 'blue' ? '#5dade2' : '#ec7063');
+            drawAbility(item, 1);
+            return;
+          }
+          var placed = lerpItem(fromItem, toItem, t);
           drawAbility(placed.item, placed.opacity);
         });
         var spike = lerpItem(plan.fromSpike.spike, plan.toSpike.spike, t);
@@ -2472,17 +2923,96 @@ document.addEventListener("spikecoach-auth", function(event) {
         segment.cached.abilities.forEach(function(ability) { drawAbility(ability, 1); });
         segment.cached.spikes.forEach(function(spike) { drawSpike(spike, 1); });
         segment.cached.agents.forEach(function(agent) { drawAgent(agent, 1); });
+        movementActions(seq).forEach(function(action) {
+          if (departedAgentIds(seq)[action.sourceAgentId]) return;
+          var agent = null;
+          segment.cached.agents.forEach(function(item) {
+            if (item.id === action.sourceAgentId) agent = item;
+          });
+          if (agent) drawMovementGlyph(agent, action);
+        });
+      }
+
+      function drawMovementGlyph(origin, action) {
+        if (!origin || !action) return;
+        var cfg = movementConfigByType(action.type);
+        if (!cfg) return;
+        var radius = exportAgentDiameter(mapSize) * cfg.ringDiameters;
+        var icon = {
+          x: origin.x + Math.cos(action.angle) * radius,
+          y: origin.y + Math.sin(action.angle) * radius
+        };
+        var a = mapPoint(origin.x, origin.y);
+        var b = mapPoint(icon.x, icon.y);
+        ctx.save();
+        ctx.strokeStyle = action.teamId === 'blue' ? '#5dade2' : '#ec7063';
+        ctx.lineWidth = Math.max(2, mapSize * 0.003);
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+        ctx.restore();
+        var glyph = mapPoint(icon.x, icon.y);
+        paintMovementIcon(ctx, action.src, glyph.x, glyph.y, mapSize, loaded, action.teamId);
+      }
+
+      function drawMovement(segment, t) {
+        if (!segment.cached) {
+          segment.cached = {
+            arrows: collectRouteArrows(segment.seq),
+            abilities: collectAbilities(segment.seq),
+            spikes: collectSpike(segment.seq),
+            agents: collectAgents(segment.seq)
+          };
+        }
+        var gone = departedAgentIds(segment.seq);
+        var byId = {};
+        segment.moves.forEach(function(move) { byId[move.id] = move; });
+        drawMap();
+        segment.cached.arrows.forEach(function(arrow) {
+          if (gone[arrow.sourceAgentId]) return;
+          var move = byId[arrow.sourceAgentId];
+          var origin = move ? {
+            x: move.path[0].x + (move.path[1].x - move.path[0].x) * t,
+            y: move.path[0].y + (move.path[1].y - move.path[0].y) * t
+          } : { x: arrow.x, y: arrow.y };
+          drawArrow(origin, { x: arrow.endX, y: arrow.endY }, arrow.teamId === 'blue' ? '#5dade2' : '#ec7063', 1);
+        });
+        segment.cached.abilities.forEach(function(ability) { drawAbility(ability, 1); });
+        segment.cached.spikes.forEach(function(spike) { drawSpike(spike, 1); });
+        segment.cached.agents.forEach(function(agent) {
+          if (gone[agent.id]) return;
+          var move = byId[agent.id];
+          var drawn = agent;
+          if (move) {
+            drawn = {
+              x: move.path[0].x + (move.path[1].x - move.path[0].x) * t,
+              y: move.path[0].y + (move.path[1].y - move.path[0].y) * t,
+              teamId: agent.teamId,
+              character: agent.character,
+              dead: agent.dead
+            };
+          }
+          drawAgent(drawn, 1);
+          var action = actionForAgent(segment.seq, agent.id);
+          if (action) drawMovementGlyph(drawn, action);
+        });
       }
 
       function drawSegment(segment, t) {
         if (segment.kind === 'hold') drawHold(segment);
         else if (segment.kind === 'arrow') drawArrowFollow(segment, t);
+        else if (segment.kind === 'movement') drawMovement(segment, t);
         else {
           var plan = segment.plan;
           if (!plan.fromAgents) {
             plan.fromAgents = indexById(collectAgents(plan.fromSeq));
             var gone = departedAgentIds(plan.fromSeq);
             Object.keys(gone).forEach(function(id) { delete plan.fromAgents[id]; });
+            Object.keys(plan.fromAgents).forEach(function(id) {
+              plan.fromAgents[id] = shiftedAgent(plan.fromSeq, plan.fromAgents[id]);
+            });
             plan.toAgents = indexById(collectAgents(plan.toSeq));
             plan.fromAbilities = indexById(collectAbilities(plan.fromSeq));
             plan.toAbilities = indexById(collectAbilities(plan.toSeq));
@@ -2672,7 +3202,8 @@ document.addEventListener("spikecoach-auth", function(event) {
       return {
         teams: { blue: createEmptyTeamState(), red: createEmptyTeamState() },
         arrows: [],
-        spike: null
+        spike: null,
+        movements: []
       };
     }
 
@@ -2696,6 +3227,7 @@ document.addEventListener("spikecoach-auth", function(event) {
       if (!d || !d.moved) return false;
       if (d.mode === 'arrow-draft') return !!d.saved;
       if (d.mode === 'wall-draw' || d.mode === 'wall-length') return !!d.saved;
+      if (d.mode === 'movement-aim') return !!d.saved;
       if (d.mode === 'ability-tray' || d.mode === 'spike-tray') return isInsideMapClient(e.clientX, e.clientY);
       return d.mode === 'slot' || d.mode === 'marker' || d.mode === 'ability-map' ||
         d.mode === 'spike-map' || d.mode === 'arrow-end';
@@ -2705,7 +3237,8 @@ document.addEventListener("spikecoach-auth", function(event) {
       return {
         teams: convertTeams(state.teams, true),
         arrows: convertArrows(state.arrows, true),
-        spike: convertSpike(state.spike, true)
+        spike: convertSpike(state.spike, true),
+        movements: deepClone(pruneMovements(state.movements, state.teams))
       };
     }
 
@@ -2720,6 +3253,7 @@ document.addEventListener("spikecoach-auth", function(event) {
       state.teams = convertTeams(seq.teams, false);
       state.arrows = convertArrows(seq.arrows, false);
       state.spike = convertSpike(seq.spike, false);
+      state.movements = pruneMovements(seq.movements || [], state.teams);
       state.mapSelection = null;
       state.focusedMapAgent = null;
       closeAgentPicker();
@@ -2845,7 +3379,10 @@ document.addEventListener("spikecoach-auth", function(event) {
               src: placement.src,
               label: placement.label,
               x: placement.mapPos.x,
-              y: placement.mapPos.y
+              y: placement.mapPos.y,
+              sourceAgentId: slot.instanceId || null,
+              agentX: slot.mapPos ? slot.mapPos.x : null,
+              agentY: slot.mapPos ? slot.mapPos.y : null
             };
             if (placement.wallEnd) {
               abilityItem.wallEnd = { x: placement.wallEnd.x, y: placement.wallEnd.y };
@@ -2859,6 +3396,25 @@ document.addEventListener("spikecoach-auth", function(event) {
         });
       });
       return list;
+    }
+
+    function abilityLaunchPoint(item, fromAgent) {
+      if (fromAgent) return { x: fromAgent.x, y: fromAgent.y };
+      if (item && item.agentX != null && item.agentY != null) return { x: item.agentX, y: item.agentY };
+      if (!item) return null;
+      return { x: item.x, y: item.y };
+    }
+
+    function shiftWallGeom(geom, dx, dy) {
+      if (!geom) return null;
+      function shift(point) {
+        return point ? { x: point.x + dx, y: point.y + dy } : null;
+      }
+      return {
+        start: shift(geom.start),
+        end: shift(geom.end),
+        arms: geom.arms ? geom.arms.map(shift) : null
+      };
     }
 
     function collectSpike(seq) {
@@ -3196,6 +3752,17 @@ document.addEventListener("spikecoach-auth", function(event) {
         } else if (prev && animate && holdPosition) {
           placePlayMarker(el, prev.x, prev.y, false);
           el.style.opacity = '1';
+        } else if (!prev && animate && kind === 'agent') {
+          placePlayMarker(el, next.x, next.y, false);
+          el.style.opacity = '0';
+          el.classList.add('is-enter');
+          void el.offsetWidth;
+          el.classList.remove('is-instant');
+          el.style.opacity = '1';
+        } else if (!prev && animate && kind === 'ability') {
+          var launch = abilityLaunchPoint(next, null);
+          placePlayMarker(el, launch.x, launch.y, false);
+          el.style.opacity = '1';
         } else if (!prev && animate) {
           placePlayMarker(el, next.x, next.y, false);
           el.style.opacity = '0';
@@ -3342,6 +3909,7 @@ document.addEventListener("spikecoach-auth", function(event) {
           svg.appendChild(group);
         }
         anims.push({
+          id: id,
           group: group,
           config: config,
           from: wallGeom(prev || next),
@@ -3358,7 +3926,7 @@ document.addEventListener("spikecoach-auth", function(event) {
             group.parentNode.removeChild(group);
           }
         } else if (!prev && animate) {
-          group.style.opacity = '0';
+          group.style.opacity = '1';
         } else {
           group.style.opacity = '1';
         }
@@ -3408,7 +3976,17 @@ document.addEventListener("spikecoach-auth", function(event) {
       var fromAgents = indexById(collectAgents(fromSeq));
       var toAgents = indexById(collectAgents(toSeq));
       var gone = animate ? departedAgentIds(fromSeq) : {};
-      if (animate) Object.keys(gone).forEach(function(id) { delete fromAgents[id]; });
+      if (animate) {
+        Object.keys(gone).forEach(function(id) { delete fromAgents[id]; });
+        Object.keys(fromAgents).forEach(function(id) {
+          fromAgents[id] = shiftedAgent(fromSeq, fromAgents[id]);
+        });
+      }
+      if (dom.playbackLayer && animate) {
+        dom.playbackLayer.querySelectorAll('.strategy-play-move, .strategy-move-play').forEach(function(node) {
+          if (node.parentNode) node.parentNode.removeChild(node);
+        });
+      }
       var motions = [];
       var duration = 0;
       if (animate) {
@@ -3517,6 +4095,46 @@ document.addEventListener("spikecoach-auth", function(event) {
       var fromAbilityList = collectAbilities(fromSeq);
       var toAbilityList = collectAbilities(toSeq);
       var wallAnims = syncPlaybackWalls(fromAbilityList, toAbilityList, animate, removals);
+      var fromAbilityMap = indexById(fromAbilityList);
+      var toAbilityMap = indexById(toAbilityList);
+      var casts = [];
+      var castSvg = ensurePlaybackArrowSvg();
+      Array.prototype.forEach.call(castSvg.querySelectorAll('.strategy-ability-cast'), function(node) {
+        if (node.parentNode) node.parentNode.removeChild(node);
+      });
+      if (animate) {
+        Object.keys(toAbilityMap).forEach(function(id) {
+          if (fromAbilityMap[id]) return;
+          var item = toAbilityMap[id];
+          var launch = abilityLaunchPoint(item, fromAgents[item.sourceAgentId]);
+          var el = markerNode('ability', id);
+          if (el) {
+            placePlayMarker(el, launch.x, launch.y, false);
+            el.style.opacity = '1';
+          }
+          var dx = launch.x - item.x;
+          var dy = launch.y - item.y;
+          wallAnims.forEach(function(wall) {
+            if (wall.id !== id || !wall.fresh || !wall.to) return;
+            wall.from = shiftWallGeom(wall.to, dx, dy);
+            wall.group.style.opacity = '1';
+          });
+          var line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+          line.setAttribute('class', 'strategy-ability-cast');
+          line.setAttribute('stroke', item.teamId === 'blue' ? '#5dade2' : '#ec7063');
+          line.setAttribute('stroke-linecap', 'round');
+          castSvg.appendChild(line);
+          removals.push(line);
+          casts.push({
+            id: id,
+            el: el,
+            line: line,
+            sourceAgentId: item.sourceAgentId,
+            origin: launch,
+            end: { x: item.x, y: item.y }
+          });
+        });
+      }
       if (playback.motion && playback.motion.raf) cancelAnimationFrame(playback.motion.raf);
       playback.motion = {
         raf: 0,
@@ -3524,7 +4142,8 @@ document.addEventListener("spikecoach-auth", function(event) {
         duration: duration,
         agents: motions,
         arrows: arrowAnims,
-        walls: wallAnims
+        walls: wallAnims,
+        casts: casts
       };
       applyPlaybackMotion(animate ? 0 : 1);
       if (animate && duration) {
@@ -3549,7 +4168,49 @@ document.addEventListener("spikecoach-auth", function(event) {
           });
         }, duration || PLAYBACK_CONFIG.transitionDuration);
       }
+      if (!animate) syncPlaybackMovements(toSeq);
       return duration;
+    }
+
+    function syncPlaybackMovements(seq) {
+      if (!dom.playbackLayer) return;
+      dom.playbackLayer.querySelectorAll('.strategy-play-move, .strategy-move-play').forEach(function(node) {
+        if (node.parentNode) node.parentNode.removeChild(node);
+      });
+      var gone = departedAgentIds(seq);
+      var agents = indexById(collectAgents(seq));
+      var ring = movementRingUnit();
+      var svg = ensurePlaybackArrowSvg();
+      movementActions(seq).forEach(function(action) {
+        if (gone[action.sourceAgentId]) return;
+        var agent = agents[action.sourceAgentId];
+        if (!agent) return;
+        var icon = {
+          x: agent.x + Math.cos(action.angle) * ring,
+          y: agent.y + Math.sin(action.angle) * ring
+        };
+        var el = document.createElement('div');
+        el.className = 'strategy-play-marker strategy-play-ability team-' + action.teamId + ' is-move strategy-play-move';
+        el.dataset.playMove = action.sourceAgentId;
+        var img = document.createElement('img');
+        img.src = action.src;
+        img.alt = '';
+        img.draggable = false;
+        el.appendChild(img);
+        decorateTeamAbilityIcon(el, action.src);
+        dom.playbackLayer.appendChild(el);
+        placePlayMarker(el, icon.x, icon.y, false);
+        el.style.opacity = '1';
+        var line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        line.setAttribute('class', 'strategy-move-play');
+        line.setAttribute('data-move-line', action.sourceAgentId);
+        line.setAttribute('stroke', action.teamId === 'blue' ? '#5dade2' : '#ec7063');
+        line.setAttribute('x1', agent.x * 100);
+        line.setAttribute('y1', agent.y * 100);
+        line.setAttribute('x2', icon.x * 100);
+        line.setAttribute('y2', icon.y * 100);
+        svg.appendChild(line);
+      });
     }
 
     function agentPlaybackPoint(id, t) {
@@ -3604,6 +4265,30 @@ document.addEventListener("spikecoach-auth", function(event) {
       });
       (motion.walls || []).forEach(function(wall) {
         paintPlaybackWall(wall, t);
+      });
+      (motion.aims || []).forEach(function(aim) {
+        var origin = agentPlaybackPoint(aim.sourceAgentId, t);
+        if (!origin) return;
+        var x = origin.x + Math.cos(aim.angle) * aim.ring;
+        var y = origin.y + Math.sin(aim.angle) * aim.ring;
+        if (aim.el) placePlayMarker(aim.el, x, y, false);
+        if (aim.line) {
+          aim.line.setAttribute('x1', origin.x * 100);
+          aim.line.setAttribute('y1', origin.y * 100);
+          aim.line.setAttribute('x2', x * 100);
+          aim.line.setAttribute('y2', y * 100);
+        }
+      });
+      (motion.casts || []).forEach(function(cast) {
+        var x = cast.origin.x + (cast.end.x - cast.origin.x) * t;
+        var y = cast.origin.y + (cast.end.y - cast.origin.y) * t;
+        if (cast.el) placePlayMarker(cast.el, x, y, false);
+        if (!cast.line) return;
+        var agentPoint = agentPlaybackPoint(cast.sourceAgentId, t) || cast.origin;
+        cast.line.setAttribute('x1', agentPoint.x * 100);
+        cast.line.setAttribute('y1', agentPoint.y * 100);
+        cast.line.setAttribute('x2', x * 100);
+        cast.line.setAttribute('y2', y * 100);
       });
     }
 
@@ -3673,7 +4358,8 @@ document.addEventListener("spikecoach-auth", function(event) {
         duration: plan.duration,
         agents: motions,
         arrows: arrowAnims,
-        walls: []
+        walls: [],
+        casts: []
       };
       applyPlaybackMotion(0);
       playback.motion.raf = requestAnimationFrame(stepPlaybackMotion);
@@ -3694,11 +4380,13 @@ document.addEventListener("spikecoach-auth", function(event) {
       if (!playbackAlive(token)) return;
       var index = playback.playable[playback.step];
       var follow = arrowFollowMoves(sequences[index]);
+      var move = movementPlan(sequences[index]);
       var last = playback.step >= playback.playable.length - 1;
-      if (!follow.duration && last) {
+      if (!follow.duration && !move.duration && last) {
         finishPlayback(index);
         return;
       }
+      syncPlaybackMovements(sequences[index]);
       queuePlayback(token, PLAYBACK_CONFIG.pauseDuration, function() {
         beginArrowFollow(token);
       });
@@ -3719,6 +4407,79 @@ document.addEventListener("spikecoach-auth", function(event) {
     }
 
     function afterArrowFollow(token) {
+      if (!playbackAlive(token)) return;
+      beginMovementPhase(token);
+    }
+
+    function startMovementMotion(plan) {
+      if (playback.motion && playback.motion.raf) cancelAnimationFrame(playback.motion.raf);
+      var ring = movementRingUnit();
+      var seq = sequences[playback.playable[playback.step]];
+      var motions = plan.moves.map(function(move) {
+        return {
+          id: move.id,
+          path: move.path,
+          length: move.length,
+          duration: move.duration,
+          el: markerNode('agent', move.id)
+        };
+      });
+      var aims = plan.moves.map(function(move) {
+        return {
+          sourceAgentId: move.id,
+          angle: move.angle,
+          ring: ring,
+          el: dom.playbackLayer.querySelector('[data-play-move="' + move.id + '"]'),
+          line: dom.playbackLayer.querySelector('[data-move-line="' + move.id + '"]')
+        };
+      });
+      var arrowAnims = [];
+      plan.moves.forEach(function(move) {
+        collectRouteArrows(seq).forEach(function(arrow) {
+          if (arrow.sourceAgentId !== move.id) return;
+          var line = playbackArrowNode(arrow.id);
+          if (!line) return;
+          arrowAnims.push({
+            el: line,
+            sourceAgentId: move.id,
+            fromEnd: { x: arrow.endX, y: arrow.endY },
+            toEnd: { x: arrow.endX, y: arrow.endY },
+            fromPos: move.path[0],
+            toPos: move.end
+          });
+        });
+      });
+      playback.motion = {
+        raf: 0,
+        startTime: Date.now(),
+        duration: plan.duration,
+        agents: motions,
+        arrows: arrowAnims,
+        walls: [],
+        casts: [],
+        aims: aims
+      };
+      applyPlaybackMotion(0);
+      playback.motion.raf = requestAnimationFrame(stepPlaybackMotion);
+    }
+
+    function beginMovementPhase(token) {
+      if (!playbackAlive(token)) return;
+      var plan = movementPlan(sequences[playback.playable[playback.step]]);
+      if (!plan.duration) {
+        afterMovementPhase(token);
+        return;
+      }
+      startMovementMotion(plan);
+      queuePlayback(token, plan.duration, function() {
+        if (playback.motion && playback.motion.raf) cancelAnimationFrame(playback.motion.raf);
+        applyPlaybackMotion(1);
+        if (playback.motion) playback.motion.raf = 0;
+        afterMovementPhase(token);
+      });
+    }
+
+    function afterMovementPhase(token) {
       if (!playbackAlive(token)) return;
       if (playback.step >= playback.playable.length - 1) {
         finishPlayback(playback.playable[playback.step]);
@@ -3829,7 +4590,8 @@ document.addEventListener("spikecoach-auth", function(event) {
         sequences[0] = {
           teams: convertTeams(data.teams, true),
           arrows: convertArrows(data.arrows, true),
-          spike: convertSpike(data.spike, true)
+          spike: convertSpike(data.spike, true),
+          movements: []
         };
         sequenceTouched[0] = true;
         activeSequence = 0;
@@ -3845,7 +4607,8 @@ document.addEventListener("spikecoach-auth", function(event) {
         sequences[i] = {
           teams: src.teams || emptySequence().teams,
           arrows: src.arrows || [],
-          spike: src.spike || null
+          spike: src.spike || null,
+          movements: src.movements || []
         };
         sequenceTouched[i] = !!src.touched;
       }
@@ -3958,7 +4721,7 @@ document.addEventListener("spikecoach-auth", function(event) {
     function isStrategyObjectTarget(target) {
       if (!target || !target.closest) return false;
       return !!target.closest(
-        '.strategy-marker-group, .agent-marker, .strategy-ability-map-marker, .strategy-ability-btn, .strategy-spike-map-marker, .strategy-arrow-hit, .strategy-arrow-end'
+        '.strategy-marker-group, .agent-marker, .strategy-ability-map-marker, .strategy-ability-btn, .strategy-spike-map-marker, .strategy-arrow-hit, .strategy-arrow-end, .strategy-move-aim'
       );
     }
 
@@ -4124,6 +4887,7 @@ document.addEventListener("spikecoach-auth", function(event) {
       }
 
       dom.exportStatus = document.getElementById('strategyExportStatus');
+      dom.moveNotice = document.getElementById('strategyMoveNotice');
       dom.imageBtn = document.getElementById('strategyImageBtn');
       if (dom.downloadBtn) {
         dom.downloadBtn.addEventListener('click', exportStrategyVideo);
@@ -4166,6 +4930,7 @@ document.addEventListener("spikecoach-auth", function(event) {
       window.addEventListener('resize', function() {
         if (!dom.wallSvg || !state.mapName || playback.running) return;
         syncWalls();
+        syncMovements();
       });
       bindMapView();
       bindTimeline();
